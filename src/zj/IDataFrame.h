@@ -29,10 +29,11 @@
 #include <algorithm>
 #include <cstring>
 #include <tuple>
+#include <functional>
 
-#include <DateTime.h>
+#include <zj/DateTime.h>
 
-namespace df
+namespace zj
 {
 
 /**
@@ -216,6 +217,8 @@ using VarField = std::variant<NullField,
                               Float64VecField,
                               TimestampVecField>;
 
+using FieldRef = std::reference_wrapper<const VarField>;
+
 using Record = std::vector<VarField>;
 
 struct Series
@@ -356,6 +359,12 @@ template<class FieldValueT>
 std::string to_string( const FieldValueT &val )
 {
     return std::to_string( val );
+}
+
+template<class T>
+std::string to_string( const std::reference_wrapper<T> &val )
+{
+    return to_string( val.get() );
 }
 
 template<>
@@ -703,27 +712,102 @@ enum class IndexType : char
 {
     OrderedIndex = 'O',
     ReverseOrderedIndex = 'R',
-    HashIndex = 'H',
-    HashMultiIndex = 'M'
+    HashIndex = 'H', // key: SingleValue
+    HashMultiIndex = 'M', // key:MultiValues
 };
 
 class IDataFrame
 {
 public:
-    // return <rows, cols>
-    virtual std::array<size_t, 2> shape() const = 0;
-    virtual size_t size() const = 0;
+    /// \return <rows, cols>
+    virtual size_t countRows() const = 0;
+    virtual size_t countCols() const = 0;
     virtual const VarField &at( size_t irow, size_t icol ) const = 0;
     virtual const VarField &at( size_t irow, const std::string &col ) const = 0;
 
     virtual std::optional<size_t> colIndex( const std::string &colName ) const = 0;
-    virtual std::vector<size_t> colIndice( const std::vector<std::string> &colNames ) const = 0;
     virtual const std::string &colName( size_t icol ) const = 0;
-    virtual const std::vector<std::string> colNames( const std::vector<size_t> &icols ) const = 0;
     virtual const ColumnDef &columnDef( size_t icol ) const = 0;
     virtual const ColumnDef &columnDef( const std::string &colName ) const = 0;
 
     virtual ~IDataFrame() = default;
+
+    /// \return a concrete DataFrame.
+    virtual IDataFrame *deepCopy() const = 0;
+
+    virtual bool isView() const
+    {
+        return false;
+    }
+
+    /// \return rows/records
+    virtual size_t size() const
+    {
+        return countRows();
+    }
+    std::array<size_t, 2> shape() const
+    {
+        return std::array<size_t, 2>{countRows(), countCols()};
+    }
+    virtual std::vector<std::string> colNames( const std::vector<size_t> &icols ) const
+    {
+        std::vector<std::string> res;
+        auto N = countCols();
+        for ( auto c : icols )
+        {
+            if ( c >= N )
+                throw std::out_of_range( "Column index is out of range: " + to_string( c ) + ">=" + to_string( N ) );
+            res.push_back( colName( c ) );
+        }
+        return res;
+    }
+    virtual std::vector<size_t> colIndice( const std::vector<std::string> &colNames ) const
+    {
+        std::vector<size_t> res;
+        for ( const auto &n : colNames )
+        {
+            if ( auto r = colIndex( n ) )
+                res.push_back( *r );
+            else
+                return {};
+        }
+        return res;
+    }
+    std::vector<FieldRef> getRowRef( size_t irow ) const
+    {
+        std::vector<FieldRef> res;
+        for ( size_t i = 0, N = countCols(); i < N; ++i )
+            res.push_back( std::cref( at( irow, i ) ) );
+        return res;
+    }
+
+    std::ostream &print( std::ostream &os, bool bHeader = true, char sepField = '|', char sepRow = '\n' ) const
+    {
+        size_t NC = countCols(), NR = countRows();
+        if ( bHeader )
+        {
+            for ( size_t i = 0; i < NC; ++i )
+            {
+                if ( i )
+                    os << sepField;
+                os << columnDef( i ).colName;
+            }
+            os << sepRow;
+        }
+        for ( size_t i = 0; i < NR; ++i )
+        {
+            auto row = getRowRef( i );
+            int j = 0;
+            for ( auto &f : row )
+            {
+                if ( j++ )
+                    os << sepField;
+                os << to_string( f );
+            }
+            os << sepRow;
+        }
+        return os;
+    }
 };
 
-} // namespace df
+} // namespace zj

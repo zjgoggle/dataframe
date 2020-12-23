@@ -1,14 +1,16 @@
 #include <unittest.h>
-#include <DataFrame.h>
-#include <DataFrameIndex.h>
-#include <DataFrameBasic.h>
+#include <zj/DataFrame.h>
+#include <zj/DataFrameIndex.h>
+#include <zj/RowDataFrame.h>
+#include <zj/DataFrameView.h>
+
 
 UNITTEST_MAIN
 
-using namespace df;
-ADD_TEST_CASE( DataFrameBasic )
+using namespace zj;
+ADD_TEST_CASE( RowDataFrame )
 {
-    DataFrameBasic df, df1;
+    RowDataFrame df, df1;
 
     { // ParseTimestamp
         //        auto opDateTime = ParseDateTime( "20201225 12:05:02-4", &std::cerr );
@@ -112,5 +114,26 @@ ADD_TEST_CASE( DataFrameBasic )
 
         Record key{fieldval( 'A' )};
         REQUIRE_EQ( Set( hidxLevel[key] ), Set( ULongVec{0, 2} ) ); // John, Jonathon
+    }
+    // DataFrameView
+    {
+        DataFrameView cv;
+        REQUIRE( cv.create_column_view( df, StrVec{"Name", "Level"}, &std::cerr ) );
+        REQUIRE_EQ( cv.countRows(), df.countRows() );
+        REQUIRE_EQ( cv.countCols(), 2u );
+        std::cout << "---- Column View: Name, Level ----\n";
+        cv.print( std::cout );
+
+        DataFrameView rv;
+        rv.create_row_view( cv, ULongVec{1, 2, 3}, &std::cerr );
+        REQUIRE_EQ( rv.countRows(), 3u );
+        REQUIRE_EQ( rv.countCols(), cv.countCols() );
+        std::cout << "---- Row View: Name, Level [1..3] ----\n";
+        rv.print( std::cout );
+
+        DataFrameView gv;
+        REQUIRE( gv.create( df, ULongVec{1, 2, 3}, StrVec{"Name", "Level"}, &std::cerr ) );
+        std::cout << "---- DataFrameView: Name, Level [1..3] ----\n";
+        gv.print( std::cout );
     }
 }

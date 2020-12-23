@@ -17,38 +17,38 @@
 
 #pragma once
 
-#include <IDataFrame.h>
+#include <zj/IDataFrame.h>
 
-namespace df
+namespace zj
 {
 
 /**
  * @brief The DataFrame class with Hash/Ordered Index
  */
 
-class DataFrameBasic : public IDataFrame
+class RowDataFrame : public IDataFrame
 {
 protected:
     std::vector<ColumnDef> m_columnDefs;
     std::vector<Record> m_records;
 
-    std::unordered_map<std::string, size_t> m_columnIndex; // <name: index>
+    std::unordered_map<std::string, size_t> m_columnNames; // <name: index>
 
 public:
-    DataFrameBasic() = default;
+    RowDataFrame() = default;
 
-    DataFrameBasic( const std::vector<std::vector<std::string>> &rows, const ColumnDefs &columnDefs = {}, std::ostream *err = nullptr )
+    RowDataFrame( const std::vector<std::vector<std::string>> &rows, const ColumnDefs &columnDefs = {}, std::ostream *err = nullptr )
     {
         if ( !from_records( rows, columnDefs, err ) )
             clear();
     }
     template<class... T>
-    DataFrameBasic( const std::vector<std::tuple<T...>> &tups, const std::vector<std::string> &colNames = {}, std::ostream *err = nullptr )
+    RowDataFrame( const std::vector<std::tuple<T...>> &tups, const std::vector<std::string> &colNames = {}, std::ostream *err = nullptr )
     {
         if ( !from_tuples( tups, colNames, err ) )
             clear();
     }
-    ~DataFrameBasic() override
+    ~RowDataFrame() override
     {
         clear();
     }
@@ -158,13 +158,13 @@ public:
         {
             assert( m_records.empty() );
             // copy columns
-            for ( size_t i = 0, ncols = rhs.shape()[1]; i < ncols; ++i )
+            for ( size_t i = 0, ncols = countCols(); i < ncols; ++i )
             {
                 m_columnDefs.push_back( rhs.columnDef( i ) );
             }
             createColumnIndex();
         }
-        for ( size_t i = 0, nrows = rhs.shape()[0]; i < nrows; ++i )
+        for ( size_t i = 0, nrows = countRows(); i < nrows; ++i )
         {
             Record rec;
             for ( const auto &col : m_columnDefs )
@@ -178,17 +178,29 @@ public:
 
         return true;
     }
-
-    std::array<size_t, 2> shape() const override
+    IDataFrame *deepCopy() const override
     {
-        return {m_records.size(), m_columnDefs.size()};
+        RowDataFrame *a = new RowDataFrame();
+        a->m_columnDefs = m_columnDefs;
+        a->m_columnNames = m_columnNames;
+        a->m_records = m_records;
+        return a;
     }
-    size_t size() const override
+
+    size_t countRows() const override
     {
         return m_records.size();
     }
+    size_t countCols() const override
+    {
+        return m_columnDefs.size();
+    }
     const VarField &at( size_t irow, size_t icol ) const override
     {
+        if ( icol > countCols() )
+            throw std::out_of_range( "icol our of range: " + to_string( icol ) + " >= " + to_string( m_columnDefs.size() ) );
+        if ( irow > countRows() )
+            throw std::out_of_range( "irow our of range: " + to_string( irow ) + " >= " + to_string( countRows() ) );
         return m_records[irow][icol];
     }
     const VarField &at( size_t irow, const std::string &col ) const override
@@ -213,6 +225,10 @@ public:
 
     const ColumnDef &columnDef( size_t icol ) const override
     {
+        if ( icol >= m_columnDefs.size() )
+        {
+            throw std::out_of_range( "icol our of range: " + to_string( icol ) + " >= " + to_string( m_columnDefs.size() ) );
+        }
         return m_columnDefs[icol];
     }
     const ColumnDef &columnDef( const std::string &colName ) const override
@@ -233,23 +249,11 @@ public:
     {
         return m_columnDefs[icol].colName;
     }
-    const std::vector<std::string> colNames( const std::vector<size_t> &icols ) const override
-    {
-        std::vector<std::string> res;
-        for ( auto idx : icols )
-        {
-            if ( idx < m_columnDefs.size() )
-                res.push_back( m_columnDefs[idx].colName );
-            else
-                return {};
-        }
-        return res;
-    }
 
     // return
     std::optional<size_t> colIndex( const std::string &colName ) const override
     {
-        if ( auto it = m_columnIndex.find( colName ); it != m_columnIndex.end() )
+        if ( auto it = m_columnNames.find( colName ); it != m_columnNames.end() )
             return it->second;
         return {};
     }
@@ -264,32 +268,6 @@ public:
                 return {};
         }
         return res;
-    }
-    std::ostream &print( std::ostream &os, bool bHeader = true, char sepField = '|', char sepRow = '\n' ) const
-    {
-        if ( bHeader )
-        {
-            int i = 0;
-            for ( auto &col : m_columnDefs )
-            {
-                if ( i++ )
-                    os << sepField;
-                os << col.colName;
-            }
-            os << sepRow;
-        }
-        for ( auto &row : m_records )
-        {
-            int j = 0;
-            for ( auto &f : row )
-            {
-                if ( j++ )
-                    os << sepField;
-                os << to_string( f );
-            }
-            os << sepRow;
-        }
-        return os;
     }
 
     void clearRecords()
@@ -306,10 +284,10 @@ public:
 protected:
     void createColumnIndex()
     {
-        m_columnIndex.clear();
+        m_columnNames.clear();
         for ( size_t i = 0, N = m_columnDefs.size(); i < N; ++i )
-            m_columnIndex[m_columnDefs[i].colName] = i;
+            m_columnNames[m_columnDefs[i].colName] = i;
     }
 };
 
-} // namespace df
+} // namespace zj

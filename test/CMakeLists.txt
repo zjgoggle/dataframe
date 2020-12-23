@@ -14,5 +14,5 @@ file(GLOB SRC
 add_executable( ${PROJNAME} ${SRC} )
 
 target_include_directories(${PROJNAME} PRIVATE ./ ../src)
-target_link_libraries( ${PROJNAME} dataframe)
+target_link_libraries( ${PROJNAME} zjdataframe)
 

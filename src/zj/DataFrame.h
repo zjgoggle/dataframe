@@ -16,13 +16,5 @@
  */
 
 #pragma once
-#include <IDataFrame.h>
 
-namespace df
-{
-
-class DataFrameView : IDataFrame
-{
-};
-
-} // namespace df
+#include <zj/IDataFrame.h>
