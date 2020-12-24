@@ -133,7 +133,7 @@ struct MultiColPos
 {
     const IDataFrame *df = nullptr;
     Rowindex irow = 0;
-    std::vector<size_t> icols; // multi-column
+    std::vector<size_t> *icols; // multi-column
 
     mutable std::optional<Record> m_cache; // cache
 
@@ -144,7 +144,7 @@ struct MultiColPos
         if ( !m_cache )
         {
             Record rec;
-            for ( size_t i = 0; i < icols.size(); ++i )
+            for ( size_t i = 0; i < icols->size(); ++i )
                 rec.push_back( df->at( irow, i ) );
             m_cache = std::move( rec );
         }
@@ -153,7 +153,7 @@ struct MultiColPos
     const VarField &getNth( size_t nthField ) const
     {
         assert( df && "MultiColFieldsDelegate must be inited!" );
-        return df->at( irow, icols[nthField] );
+        return df->at( irow, ( *icols )[nthField] );
     }
     const VarField &operator[]( size_t i ) const
     {
@@ -162,7 +162,7 @@ struct MultiColPos
 
     size_t size() const
     {
-        return icols.size();
+        return icols->size();
     }
 };
 
@@ -314,14 +314,17 @@ public:
 
 struct MultiColHashIndex : public HashIndexBase<MultiColFieldsDelegate>
 {
+    ICols m_cols;
+
     // icol will not be verified.
     // return false if there are duplicate values
-    bool create( const IDataFrame &df, const std::vector<size_t> &icols, std::ostream *err = nullptr )
+    bool create( const IDataFrame &df, std::vector<size_t> &&icols, std::ostream *err = nullptr )
     {
         m_indice.clear();
+        m_cols = std::move( icols );
         for ( auto i = 0u; i < df.countRows(); ++i )
         {
-            MultiColFieldsDelegate val{MultiColPos{&df, i, icols}};
+            MultiColFieldsDelegate val{MultiColPos{&df, i, &m_cols}};
             if ( m_indice.count( val ) )
             {
                 if ( err )
@@ -434,13 +437,16 @@ struct HashMultiIndex : public HashMultiIndexBase<FieldDelegate>
 /// key:[rowIndice]
 struct MultiColHashMultiIndex : public HashMultiIndexBase<MultiColFieldsDelegate>
 {
+    ICols m_cols;
+
     // icol will not be verified.
-    void create( const IDataFrame &df, const std::vector<size_t> &icols )
+    void create( const IDataFrame &df, std::vector<size_t> &&icols )
     {
+        m_cols = std::move( icols );
         m_indice.clear();
         for ( auto i = 0u; i < df.size(); ++i )
         {
-            MultiColFieldsDelegate val{MultiColPos{&df, i, icols}};
+            MultiColFieldsDelegate val{MultiColPos{&df, i, &m_cols}};
             auto &mapped = m_indice[val];
             mapped.push_back( i );
             if ( mapped.size() > 1 )
@@ -566,20 +572,28 @@ protected:
     }
 };
 
+
 struct MultiColOrderedIndex : public OrderedIndexBase<MultiColFieldsDelegate>
 {
+    ICols m_cols;
     // icol will not be verified.
-    void create( const IDataFrame &df, const std::vector<size_t> &icols, bool bReverseOrder = false )
+    void create( const IDataFrame &df, std::vector<size_t> &&icols, bool bReverseOrder = false )
     {
+        m_cols = std::move( icols );
         m_indice.clear();
         for ( auto i = 0u; i < df.size(); ++i )
-            m_indice.push_back( MultiColFieldsDelegate{MultiColPos{&df, i, icols}} );
+            m_indice.push_back( MultiColFieldsDelegate{MultiColPos{&df, i, &m_cols}} );
         m_bReverseOrder = bReverseOrder;
         sortRows();
     }
-    void create( const IDataFrame &df, const std::vector<std::string> &colNames, bool bReverseOrder = false )
+    bool create( const IDataFrame &df, const std::vector<std::string> &colNames, bool bReverseOrder = false )
     {
-        create( df, df.colIndice( colNames ), bReverseOrder );
+        if ( auto icols = df.colIndice( colNames ); !icols.empty() )
+        {
+            create( df, std::move( icols ), bReverseOrder );
+            return true;
+        }
+        return false;
     }
 };
 
@@ -695,11 +709,11 @@ public:
                 *err << "AddIndex failed: couldn't find column names: " << to_string( colNames ) << ".\n";
             return {};
         }
-        return addIndex( indexType, icols, indexName, err );
+        return addIndex( indexType, std::move( icols ), indexName, err );
     }
 
     std::optional<iterator> addIndex( IndexType indexType,
-                                      const std::vector<size_t> &colIndice,
+                                      std::vector<size_t> &&colIndice,
                                       const std::string &indexName = "",
                                       std::ostream *err = nullptr );
 

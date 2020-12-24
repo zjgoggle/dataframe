@@ -5,7 +5,7 @@ namespace zj
 
 // return index handle
 std::optional<IndexManager::iterator> IndexManager::addIndex( IndexType indexType,
-                                                              const std::vector<size_t> &icols,
+                                                              std::vector<size_t> &&icols,
                                                               const std::string &indexName,
                                                               std::ostream *err )
 {
@@ -29,14 +29,14 @@ std::optional<IndexManager::iterator> IndexManager::addIndex( IndexType indexTyp
     if ( indexType == IndexType::ReverseOrderedIndex || indexType == IndexType::OrderedIndex )
     {
         MultiColOrderedIndex index;
-        index.create( *m_pDataFrame, icols );
+        index.create( *m_pDataFrame, std::move( icols ) );
         val.value = std::move( index );
         key.indexCategory = IndexCategory::OrderedCat;
     }
     else if ( indexType == IndexType::HashIndex || indexType == IndexType::HashMultiIndex )
     {
         MultiColHashMultiIndex index;
-        index.create( *m_pDataFrame, icols );
+        index.create( *m_pDataFrame, std::move( icols ) );
         if ( indexType == IndexType::HashIndex && index.isMultiValue() )
         {
             if ( err )

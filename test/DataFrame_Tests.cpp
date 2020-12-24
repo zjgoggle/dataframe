@@ -8,7 +8,7 @@
 UNITTEST_MAIN
 
 using namespace zj;
-ADD_TEST_CASE( RowDataFrame )
+ADD_TEST_CASE( DataFrame_Basic )
 {
     RowDataFrame df, df1;
 
@@ -36,7 +36,7 @@ ADD_TEST_CASE( RowDataFrame )
     {
         std::vector<ColumnDef> colDefs = {
                 StrCol( "Name" ), Int32Col( "Age" ), {FieldTypeTag::Char, "Level"}, {FieldTypeTag::Float32, "Score"}, TimestampCol( "BirthDate" )};
-        std::vector<StrVec> records{{"John", "23", "A", "29.3", "2000/10/22"}, {"Tom", "18", "B", "45.2", "11/1/2008"}};
+        std::vector<StrVec> records{{"John", "23", "A", "29.3", "2000/10/22"}, {"Tom", "18", "B", "45.2", "N/A"}};
 
         REQUIRE( df.from_records( records, colDefs, &std::cerr ) );
 
@@ -95,14 +95,18 @@ ADD_TEST_CASE( RowDataFrame )
     // MultiColOrderedIndex
     {
         MultiColOrderedIndex idxLevelScore;
-        idxLevelScore.create( df, StrVec{"Level", "Score"} );
+        idxLevelScore.create( df, SCols{"Level", "Score"} );
 
         REQUIRE_EQ( idxLevelScore[0], 2u ); // Jonathon
+
+        MultiColOrderedIndex sortedBirth;
+        REQUIRE( sortedBirth.create( df, SCols{"BirthDate"} ) );
+        REQUIRE_EQ( sortedBirth[0], 1u );
     }
     // MultiColHashIndex
     {
         MultiColHashIndex hidxLevelAge;
-        REQUIRE( hidxLevelAge.create( df, StrVec{"Level", "Age"}, &std::cerr ) );
+        REQUIRE( hidxLevelAge.create( df, SCols{"Level", "Age"}, &std::cerr ) );
 
         Record key{fieldval( 'A' ), fieldval( 24 )};
         REQUIRE_EQ( hidxLevelAge[key], 2u ); // Jonathon
@@ -118,21 +122,21 @@ ADD_TEST_CASE( RowDataFrame )
     // DataFrameView
     {
         DataFrameView cv;
-        REQUIRE( cv.create_column_view( df, StrVec{"Name", "Level"}, &std::cerr ) );
+        REQUIRE( cv.create_column_view( df, SCols{"Name", "Level"}, &std::cerr ) );
         REQUIRE_EQ( cv.countRows(), df.countRows() );
         REQUIRE_EQ( cv.countCols(), 2u );
         std::cout << "---- Column View: Name, Level ----\n";
         cv.print( std::cout );
 
         DataFrameView rv;
-        rv.create_row_view( cv, ULongVec{1, 2, 3}, &std::cerr );
+        rv.create_row_view( cv, IRows{1, 2, 3}, &std::cerr );
         REQUIRE_EQ( rv.countRows(), 3u );
         REQUIRE_EQ( rv.countCols(), cv.countCols() );
         std::cout << "---- Row View: Name, Level [1..3] ----\n";
         rv.print( std::cout );
 
         DataFrameView gv;
-        REQUIRE( gv.create( df, ULongVec{1, 2, 3}, StrVec{"Name", "Level"}, &std::cerr ) );
+        REQUIRE( gv.create( df, IRows{1, 2, 3}, SCols{"Name", "Level"}, &std::cerr ) );
         std::cout << "---- DataFrameView: Name, Level [1..3] ----\n";
         gv.print( std::cout );
     }

@@ -36,6 +36,19 @@
 namespace zj
 {
 
+// using Null = std::nullptr_t;
+using Str = std::string;
+using StrVec = std::vector<std::string>;
+using IntVec = std::vector<int32_t>;
+using LongVec = std::vector<int64_t>;
+using ULongVec = std::vector<size_t>;
+using Timestamp = DateTime;
+
+
+using SCols = StrVec; // String Columns
+using ICols = ULongVec; // Int Columns
+using IRows = ULongVec; // Int Rows;
+
 /**
 
 DataFrame Storage Layout:
@@ -102,26 +115,27 @@ constexpr FieldTypeTag element_field_type( FieldTypeTag type )
 struct Null
 {
 };
-bool operator==( const Null &, const Null & )
+inline bool operator==( const Null &, const Null & )
 {
     return true;
 }
-bool operator!=( const Null &, const Null & )
+inline bool operator<( const Null &, const Null & )
 {
     return false;
 }
-bool operator<( const Null &, const Null & )
+struct Global
 {
-    return false;
-}
+    static constexpr const char *defaultNullStr = "N/A";
+    std::string nullstr = defaultNullStr;
+    bool bParseNull = true; // auto parse null field.
+};
 
-// using Null = std::nullptr_t;
-using Str = std::string;
-using StrVec = std::vector<std::string>;
-using IntVec = std::vector<int32_t>;
-using LongVec = std::vector<int64_t>;
-using ULongVec = std::vector<size_t>;
-using Timestamp = DateTime;
+Global &global();
+
+inline bool is_null( std::string_view s )
+{
+    return global().nullstr == s;
+}
 
 template<class T>
 auto Set( const T &v )
@@ -152,6 +166,7 @@ bool operator==( const FieldValue<UnderlyingType> &a, const FieldValue<Underlyin
 {
     return a.value == b.value;
 }
+
 template<class UnderlyingType>
 bool operator<( const FieldValue<UnderlyingType> &a, const FieldValue<UnderlyingType> &b )
 {
@@ -171,7 +186,7 @@ bool operator<( const FieldValue<UnderlyingType> &a, const FieldValue<Underlying
         value_type value;                                                                                                                           \
     };                                                                                                                                              \
     using FIELDTYPE##Field = FieldValue<UNDERLYINGTYPE>;                                                                                            \
-    ColumnDef FIELDTYPE##Col( std::string name )                                                                                                    \
+    inline ColumnDef FIELDTYPE##Col( std::string name )                                                                                             \
     {                                                                                                                                               \
         return ColumnDef{FieldTypeTag::FIELDTYPE, std::move( name )};                                                                               \
     }
@@ -227,7 +242,40 @@ struct Series
     std::vector<VarField> data;
 };
 
-
+//-- bellow compare the NullField with other Field types.
+inline bool operator==( const VarField &a, const VarField &b )
+{
+    int anynull = ( a.index() == 0 ? 1 : 0 ) | ( b.index() == 0 ? 2 : 0 );
+    if ( anynull )
+        return anynull == 3;
+    return std::operator==( a, b );
+}
+inline bool operator!=( const VarField &a, const VarField &b )
+{
+    return !operator==( a, b );
+}
+inline bool operator<( const VarField &a, const VarField &b )
+{
+    int anynull = ( a.index() == 0 ? 1 : 0 ) | ( b.index() == 0 ? 2 : 0 );
+    if ( anynull )
+        return ( anynull == 1 ); // null is always less than non-null.
+    return std::operator<( a, b );
+}
+inline bool operator>( const VarField &a, const VarField &b )
+{
+    int anynull = ( a.index() == 0 ? 1 : 0 ) | ( b.index() == 0 ? 2 : 0 );
+    if ( anynull )
+        return ( anynull == 2 ); // null is always less than non-null.
+    return std::operator>( a, b );
+}
+inline bool operator<=( const VarField &a, const VarField &b )
+{
+    return !operator>( a, b );
+}
+inline bool operator>=( const VarField &a, const VarField &b )
+{
+    return !operator<( a, b );
+}
 ///////////////////////////////////////////////////////////////
 /// create_default_field
 ///////////////////////////////////////////////////////////////
@@ -289,12 +337,12 @@ VarField fieldval( T v )
     return VarField{std::in_place_type_t<FieldValue<T>>(), FieldValue<T>{v}};
 }
 template<>
-VarField fieldval( const char *v )
+inline VarField fieldval( const char *v )
 {
     return VarField{std::in_place_type_t<FieldValue<std::string>>(), FieldValue<std::string>{v}};
 }
 template<>
-VarField fieldval( std::string_view v )
+inline VarField fieldval( std::string_view v )
 {
     return VarField{std::in_place_type_t<FieldValue<std::string>>(), FieldValue<std::string>{std::string( v )}};
 }
@@ -302,13 +350,13 @@ VarField fieldval( std::string_view v )
 struct CreateField
 {
     template<class T, class... Args>
-    constexpr VarField invoke( Args &&... args ) const
+    inline constexpr VarField invoke( Args &&... args ) const
     {
         return field<T>( std::forward<Args>( args )... );
     }
 };
 
-VarField create_default_field( FieldTypeTag typeTag )
+inline VarField create_default_field( FieldTypeTag typeTag )
 {
     return static_invoke_for_type( typeTag, CreateField() );
 }
@@ -346,7 +394,7 @@ struct GetFieldTypeName
     }
 };
 
-const char *typeName( FieldTypeTag typeTag )
+inline const char *typeName( FieldTypeTag typeTag )
 {
     return static_invoke_for_type( typeTag, GetFieldTypeName() );
 }
@@ -368,21 +416,21 @@ std::string to_string( const std::reference_wrapper<T> &val )
 }
 
 template<>
-std::string to_string( const char &s )
+inline std::string to_string( const char &s )
 {
     std::string res;
     res += s;
     return res;
 }
 template<>
-std::string to_string( const std::string &s )
+inline std::string to_string( const std::string &s )
 {
     return s;
 }
 
 
 template<>
-std::string to_string( const Timestamp &tsSinceEpoch )
+inline std::string to_string( const Timestamp &tsSinceEpoch )
 {
     return tsSinceEpoch.to_string();
 }
@@ -435,19 +483,19 @@ std::string to_string( const FieldValue<T> &val )
     if constexpr ( std::is_same_v<FieldValue<T>, StrField> )
         return val.value;
     else if constexpr ( std::is_same_v<FieldValue<T>, NullField> )
-        return "null";
+        return global().nullstr;
     else
         return to_string( val.value );
 }
 template<>
-std::string to_string( const VarField &var )
+inline std::string to_string( const VarField &var )
 {
     std::string res;
     std::visit( [&]( const auto &fieldval ) { res = to_string( fieldval ); }, var );
     return res;
 }
 
-std::ostream &operator<<( std::ostream &os, const VarField &var )
+inline std::ostream &operator<<( std::ostream &os, const VarField &var )
 {
     os << to_string( var );
     return os;
@@ -462,7 +510,7 @@ bool from_string( FieldValueT &val, std::string_view s );
 
 
 template<>
-bool from_string( Timestamp &val, std::string_view s )
+inline bool from_string( Timestamp &val, std::string_view s )
 {
     auto opDateTime = ParseDateTime( s );
     if ( opDateTime )
@@ -479,7 +527,7 @@ bool from_string( FieldValue<T> &val, std::string_view s )
 {
     if constexpr ( std::is_same_v<FieldValue<T>, NullField> )
     {
-        return s.compare( "null" ) == 0;
+        return is_null( s );
     }
     if constexpr ( std::is_same_v<FieldValue<T>, StrField> )
     {
@@ -530,8 +578,13 @@ bool from_string( FieldValue<T> &val, std::string_view s )
 }
 
 /// \pre var must be preset with a value, type of which is used to parse string.
-bool from_string( VarField &var, std::string_view s )
+inline bool from_string( VarField &var, std::string_view s )
 {
+    if ( is_null( s ) && global().bParseNull )
+    {
+        var = NullField{};
+        return true;
+    }
     return std::visit( [&]( auto &fieldval ) { return from_string( fieldval, s ); }, var );
 }
 
@@ -631,7 +684,7 @@ struct hash_code<Null>
 {
     size_t operator()( const Null &v ) const
     {
-        return hashcode( 0u );
+        return hashcode( 0u ); // NullField is hashed as 0u.
     }
 };
 
