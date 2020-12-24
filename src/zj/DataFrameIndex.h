@@ -16,6 +16,7 @@
  */
 
 #pragma once
+#include <numeric>
 #include <zj/IDataFrame.h>
 
 namespace zj
@@ -23,41 +24,107 @@ namespace zj
 
 using Rowindex = size_t;
 
-struct FieldPos
+template<bool isSingleT>
+struct RecordOrFieldRef
 {
+    static constexpr auto isSingle = isSingleT;
+    using RecordType = std::conditional_t<isSingle, VarField, Record>;
+    using ColsType = std::conditional_t<isSingle, size_t, std::vector<size_t>>;
+
     const IDataFrame *df = nullptr;
     Rowindex irow = 0;
-    size_t icol = 0;
+    const ColsType *icols = nullptr; // vector<size_t>* or size_t*
 
-    const VarField &getValue() const
+    size_t size() const
     {
-        assert( df && "FieldDelegate not initialized!" );
-        return df->at( irow, icol );
+        if constexpr ( isSingle )
+            return 1;
+        else
+            return icols->size();
+    }
+    const VarField &at( size_t nthField ) const
+    {
+        if constexpr ( isSingle )
+        {
+            assert( nthField == 0 );
+            return df->at( irow, *icols );
+        }
+        else
+        {
+            if ( nthField >= icols->size() )
+                throw std::out_of_range( "RecordRef nthField:" + std::to_string( nthField ) + " >= " + std::to_string( icols->size() ) );
+            return df->at( irow, icols->at( nthField ) );
+        }
+    }
+    const VarField &operator[]( size_t nthField ) const
+    {
+        return at( nthField );
     }
 };
-template<>
-struct hash_code<FieldPos>
+template<bool isSingle>
+struct hash_code<RecordOrFieldRef<isSingle>>
 {
-    size_t operator()( const FieldPos &v ) const
+    size_t operator()( const RecordOrFieldRef<isSingle> &v ) const
     {
-        return hashcode( v.getValue() );
+        return VecHash()( v );
     }
 };
-bool operator<( const FieldPos &a, const FieldPos &b )
+
+template<bool isSingle>
+bool operator==( const RecordOrFieldRef<isSingle> &a, const RecordOrFieldRef<isSingle> &b )
 {
-    return a.getValue() < b.getValue();
+    if ( a.df == b.df && a.icols == b.icols && a.irow == b.irow )
+        return true;
+    if constexpr ( isSingle )
+        return a.at( 0 ) == b.at( 0 );
+    else
+        return VecEqual()( a, b );
 }
-bool operator==( const FieldPos &a, const FieldPos &b )
+template<bool isSingle>
+bool operator==( const typename RecordOrFieldRef<isSingle>::RecordType &a, const RecordOrFieldRef<isSingle> &b )
 {
-    return ( a.df == b.df && a.icol == b.icol && a.irow == b.irow ) || a.getValue() == b.getValue();
+    if constexpr ( isSingle )
+        return a == b.at( 0 );
+    else
+        return VecEqual()( a, b );
+}
+template<bool isSingle>
+bool operator==( const RecordOrFieldRef<isSingle> &a, const typename RecordOrFieldRef<isSingle>::RecordType &b )
+{
+    return b == a;
+}
+
+template<bool isSingle>
+bool operator<( const RecordOrFieldRef<isSingle> &a, const RecordOrFieldRef<isSingle> &val )
+{
+    if constexpr ( isSingle )
+        return a.at( 0 ) < val.at( 0 );
+    else
+        return VecLess()( a, val );
+}
+template<bool isSingle>
+bool operator<( const RecordOrFieldRef<isSingle> &a, const typename RecordOrFieldRef<isSingle>::RecordType &val )
+{
+    if constexpr ( isSingle )
+        return a.at( 0 ) < val;
+    else
+        return VecLess()( a, val );
+}
+template<bool isSingle>
+bool operator<( const typename RecordOrFieldRef<isSingle>::RecordType &val, const RecordOrFieldRef<isSingle> &a )
+{
+    if constexpr ( isSingle )
+        return val < a.at( 0 );
+    else
+        return VecLess()( val, a );
 }
 
 
-struct FieldDelegate
+struct FieldHashDelegate
 {
-    using position_type = FieldPos;
+    using position_type = RecordOrFieldRef<true>;
     using value_type = VarField;
-    std::variant<FieldPos, VarField> m_data; // VarField is only used for hash lookup
+    std::variant<position_type, VarField> m_data; // VarField is only used for hash lookup
 
     bool has_value() const
     {
@@ -69,20 +136,20 @@ struct FieldDelegate
     {
         if ( m_data.index() == 0 )
         {
-            const auto &pos = std::get<0>( m_data );
-            assert( pos.df && "FieldDelegate not initialized!" );
+            const position_type &pos = std::get<0>( m_data );
+            assert( pos.df && "FieldHashDelegate not initialized!" );
             return pos.irow;
         }
         else
         {
-            throw std::invalid_argument( "FieldDelegate has VarField. Expected Pos!" );
+            throw std::invalid_argument( "FieldHashDelegate has VarField. Expected Pos!" );
         }
     }
     const VarField &get() const
     {
         if ( m_data.index() == 0 )
         {
-            return std::get<0>( m_data ).getValue();
+            return std::get<0>( m_data ).at( 0 );
         }
         else
             return std::get<1>( m_data );
@@ -93,100 +160,28 @@ struct FieldDelegate
     }
 };
 template<>
-struct hash_code<FieldDelegate>
+struct hash_code<FieldHashDelegate>
 {
-    size_t operator()( const FieldDelegate &a ) const
+    size_t operator()( const FieldHashDelegate &a ) const
     {
-        return hashcode( a.m_data );
+        auto r = hashcode( a.m_data );
+        return r;
     }
 };
 
-bool operator==( const FieldDelegate &a, const FieldDelegate &b )
+inline bool operator==( const FieldHashDelegate &a, const FieldHashDelegate &b )
 {
     return a.get() == b.get();
-}
-// <
-bool operator<( const FieldDelegate &a, const FieldDelegate &b )
-{
-    return a.get() < b.get();
-}
-bool operator<( const VarField &a, const FieldDelegate &b )
-{
-    return a < b.get();
-}
-bool operator<( const FieldDelegate &a, const VarField &b )
-{
-    return a.get() < b;
-}
-// ==
-
-bool operator==( const VarField &a, const FieldDelegate &b )
-{
-    return a == b.get();
-}
-bool operator==( const FieldDelegate &a, const VarField &b )
-{
-    return a.get() == b;
-}
-
-struct MultiColPos
-{
-    const IDataFrame *df = nullptr;
-    Rowindex irow = 0;
-    std::vector<size_t> *icols; // multi-column
-
-    mutable std::optional<Record> m_cache; // cache
-
-    // get or create record
-    const Record &getValue() const
-    {
-        assert( df && "MultiColFieldsDelegate must be inited!" );
-        if ( !m_cache )
-        {
-            Record rec;
-            for ( size_t i = 0; i < icols->size(); ++i )
-                rec.push_back( df->at( irow, i ) );
-            m_cache = std::move( rec );
-        }
-        return *m_cache;
-    }
-    const VarField &getNth( size_t nthField ) const
-    {
-        assert( df && "MultiColFieldsDelegate must be inited!" );
-        return df->at( irow, ( *icols )[nthField] );
-    }
-    const VarField &operator[]( size_t i ) const
-    {
-        return getNth( i );
-    }
-
-    size_t size() const
-    {
-        return icols->size();
-    }
-};
-
-template<>
-struct hash_code<MultiColPos>
-{
-    size_t operator()( const MultiColPos &v ) const
-    {
-        return VecHash()( v );
-    }
-};
-bool operator==( const MultiColPos &a, const MultiColPos &b )
-{
-    return VecEqual()( a, b );
 }
 
 
 // multi-column Fields
-struct MultiColFieldsDelegate
+struct MultiColFieldsHashDelegate
 {
-    using position_type = MultiColPos;
+    using position_type = RecordOrFieldRef<false>;
     using value_type = Record;
 
-    std::variant<MultiColPos, Record> m_data; // Record is only used for hash lookup
+    std::variant<position_type, Record> m_data; // Record is only used for hash lookup
 
     bool has_value() const
     {
@@ -198,39 +193,27 @@ struct MultiColFieldsDelegate
     {
         if ( m_data.index() == 0 )
         {
-            const auto &pos = std::get<0>( m_data );
-            assert( pos.df && "FieldDelegate not initialized!" );
+            const position_type &pos = std::get<0>( m_data );
+            assert( pos.df && "FieldHashDelegate not initialized!" );
             return pos.irow;
         }
         else
         {
-            throw std::invalid_argument( "FieldDelegate has VarField. Expected Pos!" );
+            throw std::invalid_argument( "FieldHashDelegate has VarField. Expected Pos!" );
         }
-    }
-    const Record &get() const
-    {
-        if ( m_data.index() == 0 )
-        {
-            return std::get<0>( m_data ).getValue();
-        }
-        else
-            return std::get<1>( m_data );
-    }
-    const Record &operator*() const
-    {
-        return get();
     }
 };
 
 template<>
-struct hash_code<MultiColFieldsDelegate>
+struct hash_code<MultiColFieldsHashDelegate>
 {
-    size_t operator()( const MultiColFieldsDelegate &a ) const
+    size_t operator()( const MultiColFieldsHashDelegate &a ) const
     {
-        return hashcode( a.m_data );
+        auto r = hashcode( a.m_data );
+        return r;
     }
 };
-bool operator==( const MultiColFieldsDelegate &a, const MultiColFieldsDelegate &b )
+bool operator==( const MultiColFieldsHashDelegate &a, const MultiColFieldsHashDelegate &b )
 {
     int x = a.m_data.index() | ( b.m_data.index() << 1 );
     switch ( x )
@@ -247,35 +230,6 @@ bool operator==( const MultiColFieldsDelegate &a, const MultiColFieldsDelegate &
         assert( false && "Never reach here!" );
     }
 }
-bool operator<( const MultiColFieldsDelegate &a, const MultiColFieldsDelegate &b )
-{
-    int x = a.m_data.index() | ( b.m_data.index() << 1 );
-    switch ( x )
-    {
-    case 0:
-        return VecLess()( std::get<0>( a.m_data ), std::get<0>( b.m_data ) );
-    case 1:
-        return VecLess()( std::get<1>( a.m_data ), std::get<0>( b.m_data ) );
-    case 2:
-        return VecLess()( std::get<0>( a.m_data ), std::get<1>( b.m_data ) );
-    case 3:
-        return VecLess()( std::get<1>( a.m_data ), std::get<1>( b.m_data ) );
-    default:
-        assert( false && "Never reach here!" );
-    }
-}
-bool operator<( const MultiColFieldsDelegate &a, const Record &b )
-{
-    if ( a.m_data.index() == 0 )
-        return VecLess()( std::get<0>( a.m_data ), b );
-    return VecLess()( std::get<1>( a.m_data ), b );
-}
-bool operator<( const Record &a, const MultiColFieldsDelegate &b )
-{
-    if ( b.m_data.index() == 0 )
-        return VecLess()( a, std::get<0>( b.m_data ) );
-    return VecLess()( a, std::get<1>( b.m_data ) );
-}
 
 ///////////////////////////////////////////////////////////////////////////
 /// HashMultiIndex
@@ -283,20 +237,20 @@ bool operator<( const Record &a, const MultiColFieldsDelegate &b )
 
 
 // Positions are saved in Index.
-template<class FieldDelegateT>
+template<class FieldHashDelegateT>
 struct HashIndexBase // MultiColHashIndex
 {
-    using IndexSet = std::unordered_set<FieldDelegateT, HashCode>;
+    using IndexSet = std::unordered_set<FieldHashDelegateT, HashCode>;
     using iterator = typename IndexSet::const_iterator;
-    using RecordType = typename FieldDelegateT::value_type;
+    using RecordType = typename FieldHashDelegateT::value_type;
 
 protected:
-    IndexSet m_indice;
+    IndexSet m_indices;
 
 public:
     std::optional<Rowindex> at( const RecordType &key ) const
     {
-        if ( auto it = m_indice.find( FieldDelegateT{key} ); it != m_indice.end() )
+        if ( auto it = m_indices.find( FieldHashDelegateT{key} ); it != m_indices.end() )
             return it->index();
         return {};
     }
@@ -308,65 +262,77 @@ public:
     }
     size_t size() const
     {
-        return m_indice.size();
+        return m_indices.size();
     }
 };
 
-struct MultiColHashIndex : public HashIndexBase<MultiColFieldsDelegate>
+struct MultiColHashIndex : public HashIndexBase<MultiColFieldsHashDelegate>
 {
     ICols m_cols;
 
     // icol will not be verified.
     // return false if there are duplicate values
-    bool create( const IDataFrame &df, std::vector<size_t> &&icols, std::ostream *err = nullptr )
+    bool create( const IDataFrame &df, std::vector<size_t> icols, std::ostream *err = nullptr )
     {
-        m_indice.clear();
+        m_indices.clear();
         m_cols = std::move( icols );
-        for ( auto i = 0u; i < df.countRows(); ++i )
+        for ( size_t i = 0u, N = df.countRows(); i < N; ++i )
         {
-            MultiColFieldsDelegate val{MultiColPos{&df, i, &m_cols}};
-            if ( m_indice.count( val ) )
+            MultiColFieldsHashDelegate val{MultiColFieldsHashDelegate::position_type{&df, i, &m_cols}};
+            if ( !m_indices.insert( val ).second )
             {
                 if ( err )
-                    *err << "Failed to create MultiColHashIndex for cols:" << to_string( df.colNames( icols ) )
-                         << ". Found dupliate record:" << to_string( val.get() ) << ".\n";
+                    *err << "Failed to create MultiColHashIndex for cols:" << to_string( df.colNames( icols ) ) << ". Found dupliate record: at row"
+                         << to_string( df.getRowRef( i, m_cols ) ) << ".\n";
                 return false;
             }
-            m_indice.insert( val );
         }
         return true;
     }
     bool create( const IDataFrame &df, const std::vector<std::string> &colNames, std::ostream *err = nullptr )
     {
-        return create( df, df.colIndice( colNames ), err );
+        if ( auto icols = df.colIndices( colNames ); !icols.empty() )
+        {
+            return create( df, std::move( icols ), err );
+        }
+        if ( err )
+            *err << "Failed to find colNames: " << to_string( colNames ) << ".\n";
+        return false;
     }
 };
 
 // Positions are saved in Index.
-struct HashIndex : public HashIndexBase<FieldDelegate>
+struct HashIndex : public HashIndexBase<FieldHashDelegate>
 {
+    size_t m_cols;
     // icol will not be verified.
     // return false if there are duplicate values
     bool create( const IDataFrame &df, size_t icol, std::ostream *err = nullptr )
     {
-        m_indice.clear();
+        m_indices.clear();
+        m_cols = icol;
         for ( auto i = 0u; i < df.countRows(); ++i )
         {
-            FieldDelegate val{FieldPos{&df, i, icol}};
-            if ( m_indice.count( val ) )
+            FieldHashDelegate val{FieldHashDelegate::position_type{&df, i, &m_cols}};
+            if ( !m_indices.insert( val ).second )
             {
                 if ( err )
                     *err << "Failed to create HashIndex at col:" << df.colName( icol ) << ". Found dupliate field:" << to_string( val.get() )
                          << ".\n";
                 return false;
             }
-            m_indice.insert( val );
         }
         return true;
     }
     bool create( const IDataFrame &df, const std::string &colName, std::ostream *err = nullptr )
     {
-        return create( df, *df.colIndex( colName ), err );
+        if ( auto icol = df.colIndex( colName ) )
+        {
+            return create( df, std::move( *icol ), err );
+        }
+        if ( err )
+            *err << "Failed to find colName: " << colName << ".\n";
+        return false;
     }
 };
 
@@ -376,22 +342,22 @@ struct HashIndex : public HashIndexBase<FieldDelegate>
 
 // Positions are saved in Index.
 /// Single-column as key, vector of row index as mapped values.
-template<class FieldDelegateT>
+template<class FieldHashDelegateT>
 struct HashMultiIndexBase
 {
-    using IndexMap = std::unordered_map<FieldDelegateT, std::vector<size_t>, HashCode>;
+    using IndexMap = std::unordered_map<FieldHashDelegateT, std::vector<size_t>, HashCode>;
     using iterator = typename IndexMap::const_iterator;
-    using RecordType = typename FieldDelegateT::value_type;
+    using RecordType = typename FieldHashDelegateT::value_type;
 
 protected:
-    IndexMap m_indice;
+    IndexMap m_indices;
     // if true, each key has multi values; otherwise, each key has single value. it's determined when index is created.
     bool m_isMultiValue = false;
 
 public:
     const std::vector<size_t> *at( const RecordType &key ) const
     {
-        if ( auto it = m_indice.find( FieldDelegateT{key} ); it != m_indice.end() )
+        if ( auto it = m_indices.find( FieldHashDelegateT{key} ); it != m_indices.end() )
             return &it->second;
         return nullptr;
     }
@@ -403,7 +369,7 @@ public:
     }
     size_t size() const
     {
-        return m_indice.size();
+        return m_indices.size();
     }
     bool isMultiValue() const
     {
@@ -411,51 +377,63 @@ public:
     }
 };
 
-struct HashMultiIndex : public HashMultiIndexBase<FieldDelegate>
+struct HashMultiIndex : public HashMultiIndexBase<FieldHashDelegate>
 {
+    size_t m_cols;
     // icol will not be verified.
     void create( const IDataFrame &df, size_t icol )
     {
-        m_indice.clear();
+        m_indices.clear();
+        m_cols = icol;
         m_isMultiValue = false;
         for ( auto i = 0u; i < df.countRows(); ++i )
         {
-            FieldDelegate val{FieldPos{&df, i, icol}};
-            auto &mapped = m_indice[val];
+            FieldHashDelegate val{typename FieldHashDelegate::position_type{&df, i, &m_cols}};
+            auto &mapped = m_indices[val];
             mapped.push_back( i );
             if ( mapped.size() > 1 )
                 m_isMultiValue = true;
         }
     }
-    void create( const IDataFrame &df, const std::string &colName )
+    bool create( const IDataFrame &df, const std::string &colName )
     {
-        create( df, colName );
+        if ( auto icol = df.colIndex( colName ) )
+        {
+            create( df, std::move( *icol ) );
+            return true;
+        }
+        return false;
     }
 };
 
 // Positions are saved in Index.
-/// key:[rowIndice]
-struct MultiColHashMultiIndex : public HashMultiIndexBase<MultiColFieldsDelegate>
+/// key:[rowindices]
+struct MultiColHashMultiIndex : public HashMultiIndexBase<MultiColFieldsHashDelegate>
 {
     ICols m_cols;
 
     // icol will not be verified.
-    void create( const IDataFrame &df, std::vector<size_t> &&icols )
+    void create( const IDataFrame &df, std::vector<size_t> icols )
     {
+        m_indices.clear();
         m_cols = std::move( icols );
-        m_indice.clear();
         for ( auto i = 0u; i < df.size(); ++i )
         {
-            MultiColFieldsDelegate val{MultiColPos{&df, i, &m_cols}};
-            auto &mapped = m_indice[val];
+            MultiColFieldsHashDelegate val{MultiColFieldsHashDelegate::position_type{&df, i, &m_cols}};
+            auto &mapped = m_indices[val];
             mapped.push_back( i );
             if ( mapped.size() > 1 )
                 m_isMultiValue = true;
         }
     }
-    void create( const IDataFrame &df, const std::vector<std::string> &colNames )
+    bool create( const IDataFrame &df, const std::vector<std::string> &colNames )
     {
-        create( df, df.colIndice( colNames ) );
+        if ( auto icols = df.colIndices( colNames ); !icols.empty() )
+        {
+            create( df, std::move( icols ) );
+            return true;
+        }
+        return false;
     }
 };
 
@@ -463,24 +441,80 @@ struct MultiColHashMultiIndex : public HashMultiIndexBase<MultiColFieldsDelegate
 /// OrderedIndex
 ///////////////////////////////////////////////////////////////////////////
 
-// Positions are saved in Index.
-template<class FieldDelegateT>
+
+
+template<bool isSingleColT>
 struct OrderedIndexBase
 {
-    using IndexVec = std::vector<FieldDelegateT>;
-    using iterator = typename IndexVec::const_iterator;
-    using RecordType = typename FieldDelegateT::value_type;
+    static constexpr bool isSingleCol = isSingleColT;
+    using RecordRef = RecordOrFieldRef<isSingleColT>;
+    using RecordType = typename RecordRef::RecordType;
+    using ColsType = typename RecordRef::ColsType;
+
+    struct LessThan
+    {
+        const IDataFrame *m_pDataFrame = nullptr;
+        const ColsType *m_colIndices = nullptr;
+        bool m_bReverseOrder = false;
+
+        bool operator()( const RecordType &a, const RecordType &b ) const
+        {
+            if ( m_bReverseOrder )
+                return b < a;
+            else
+                return a < b;
+        }
+        bool operator()( const RecordType &a, size_t irow ) const
+        {
+            if ( m_bReverseOrder )
+                return RecordRef{m_pDataFrame, irow, m_colIndices} < a;
+            else
+                return a < RecordRef{m_pDataFrame, irow, m_colIndices};
+        }
+        bool operator()( size_t irow, const RecordType &b ) const
+        {
+            if ( m_bReverseOrder )
+                return b < RecordRef{m_pDataFrame, irow, m_colIndices};
+            else
+                return RecordRef{m_pDataFrame, irow, m_colIndices} < b;
+        }
+        bool operator()( size_t irow1, size_t irow2 ) const
+        {
+            if ( m_bReverseOrder )
+                return RecordRef{m_pDataFrame, irow2, m_colIndices} < RecordRef{m_pDataFrame, irow1, m_colIndices};
+            else
+                return RecordRef{m_pDataFrame, irow1, m_colIndices} < RecordRef{m_pDataFrame, irow2, m_colIndices};
+        }
+    };
 
 protected:
-    IndexVec m_indice;
-    bool m_bReverseOrder = false;
+    const IDataFrame *m_pDataFrame = nullptr;
+    ColsType m_cols; // vector<size_t> or size_t
+    std::vector<Rowindex> m_indices;
+    bool m_bReverseOrder;
+
+    using iterator = std::vector<Rowindex>::const_iterator;
 
 public:
+    void create( const IDataFrame &df, std::conditional_t<isSingleCol, size_t, std::vector<size_t>> icols, bool bReverseOrder = false )
+    {
+        m_pDataFrame = &df;
+        m_cols = std::move( icols );
+        m_indices.resize( df.countRows() );
+        std::iota( m_indices.begin(), m_indices.end(), 0 );
+        m_bReverseOrder = bReverseOrder;
+        sortRows();
+    }
+
+    const std::vector<Rowindex> &getRowIndices() const
+    {
+        return m_indices;
+    }
     // get the row index of the element that is in n-th position of Index.
     std::optional<Rowindex> at( size_t nth ) const
     {
         if ( nth < size() )
-            return m_indice[nth].index();
+            return getRowIndices()[nth];
         return {};
     }
 
@@ -491,9 +525,9 @@ public:
         if ( pos >= size() || ( end != 0 && pos > end ) )
             throw std::out_of_range( "findFirstGE" );
         // lower_bound.
-        iterator itEnd = end == 0 ? m_indice.end() : std::next( m_indice.begin(), end );
-        if ( iterator it = lower_bound( val, std::next( m_indice.begin(), pos ), itEnd ); it != itEnd )
-            return std::distance( m_indice.begin(), it );
+        iterator itEnd = end == 0 ? m_indices.end() : std::next( m_indices.begin(), end );
+        if ( iterator it = lower_bound( val, std::next( m_indices.begin(), pos ), itEnd ); it != itEnd )
+            return std::distance( m_indices.begin(), it );
         return {};
     }
     /// Find the first element > val.
@@ -503,9 +537,9 @@ public:
         if ( pos >= size() || ( end != 0 && pos > end ) )
             throw std::out_of_range( "findFirstGT" );
         // upper_bound.
-        iterator itEnd = end == 0 ? m_indice.end() : std::next( m_indice.begin(), end );
-        if ( iterator it = upper_bound( val, std::next( m_indice.begin(), pos ), itEnd ); it != itEnd )
-            return std::distance( m_indice.begin(), it );
+        iterator itEnd = end == 0 ? m_indices.end() : std::next( m_indices.begin(), end );
+        if ( iterator it = upper_bound( val, std::next( m_indices.begin(), pos ), itEnd ); it != itEnd )
+            return std::distance( m_indices.begin(), it );
         return {};
     }
 
@@ -515,9 +549,10 @@ public:
     {
         if ( pos >= size() || ( end != 0 && pos > end ) )
             throw std::out_of_range( "findFirst" );
-        iterator itEnd = end == 0 ? m_indice.end() : std::next( m_indice.begin(), end );
-        if ( iterator it = lower_bound( val, std::next( m_indice.begin(), pos ), itEnd ); it != itEnd && it->get() == val )
-            return std::distance( m_indice.begin(), it );
+        iterator itEnd = end == 0 ? m_indices.end() : std::next( m_indices.begin(), end );
+        if ( iterator it = lower_bound( val, std::next( m_indices.begin(), pos ), itEnd );
+             it != itEnd && RecordRef{m_pDataFrame, *it, &m_cols} == val )
+            return std::distance( m_indices.begin(), it );
         return {};
     }
     /// Find the last element == val.
@@ -526,13 +561,13 @@ public:
     {
         if ( pos >= size() || ( end != 0 && pos > end ) )
             throw std::out_of_range( "findLast" );
-        iterator itBegin = std::next( m_indice.begin(), pos ), itEnd = end == 0 ? m_indice.end() : std::next( m_indice.begin(), end );
+        iterator itBegin = std::next( m_indices.begin(), pos ), itEnd = end == 0 ? m_indices.end() : std::next( m_indices.begin(), end );
         iterator it = upper_bound( val, itBegin, itEnd );
         if ( it != itBegin )
         {
             it = std::prev( it, 1 );
-            if ( it->get() == val )
-                return std::distance( m_indice.begin(), it );
+            if ( RecordRef{m_pDataFrame, *it, &m_cols} == val )
+                return std::distance( m_indices.begin(), it );
         }
         return {};
     }
@@ -545,50 +580,32 @@ public:
     }
     size_t size() const
     {
-        return m_indice.size();
+        return m_indices.size();
     }
 
 protected:
     void sortRows()
     {
-        if ( m_bReverseOrder )
-            std::sort( m_indice.begin(), m_indice.end(), GreaterThan() );
-        else
-            std::sort( m_indice.begin(), m_indice.end() );
+        std::sort( m_indices.begin(), m_indices.end(), LessThan{m_pDataFrame, &m_cols, m_bReverseOrder} );
     }
     iterator lower_bound( const RecordType &val, iterator itBegin, iterator itEnd ) const
     {
-        if ( m_bReverseOrder )
-            return std::lower_bound( itBegin, itEnd, val, GreaterThan() );
-        else
-            return std::lower_bound( itBegin, itEnd, val );
+        return std::lower_bound( itBegin, itEnd, val, LessThan{m_pDataFrame, &m_cols, m_bReverseOrder} );
     }
     iterator upper_bound( const RecordType &val, iterator itBegin, iterator itEnd ) const
     {
-        if ( m_bReverseOrder )
-            return std::upper_bound( itBegin, itEnd, val, GreaterThan() );
-        else
-            return std::upper_bound( itBegin, itEnd, val );
+        return std::upper_bound( itBegin, itEnd, val, LessThan{m_pDataFrame, &m_cols, m_bReverseOrder} );
     }
 };
 
-
-struct MultiColOrderedIndex : public OrderedIndexBase<MultiColFieldsDelegate>
+struct MultiColOrderedIndex : public OrderedIndexBase<false>
 {
-    ICols m_cols;
-    // icol will not be verified.
-    void create( const IDataFrame &df, std::vector<size_t> &&icols, bool bReverseOrder = false )
-    {
-        m_cols = std::move( icols );
-        m_indice.clear();
-        for ( auto i = 0u; i < df.size(); ++i )
-            m_indice.push_back( MultiColFieldsDelegate{MultiColPos{&df, i, &m_cols}} );
-        m_bReverseOrder = bReverseOrder;
-        sortRows();
-    }
+    using BaseType = OrderedIndexBase<false>;
+    using BaseType::create;
+
     bool create( const IDataFrame &df, const std::vector<std::string> &colNames, bool bReverseOrder = false )
     {
-        if ( auto icols = df.colIndice( colNames ); !icols.empty() )
+        if ( auto icols = df.colIndices( colNames ); !icols.empty() )
         {
             create( df, std::move( icols ), bReverseOrder );
             return true;
@@ -597,22 +614,15 @@ struct MultiColOrderedIndex : public OrderedIndexBase<MultiColFieldsDelegate>
     }
 };
 
-struct OrderedIndex : public OrderedIndexBase<FieldDelegate>
+struct OrderedIndex : public OrderedIndexBase<true>
 {
-    // icol will not be verified.
-    // return false if there are duplicate values
-    bool create( const IDataFrame &df, size_t icol, bool bReverse = false )
-    {
-        m_indice.clear();
-        for ( auto i = 0u; i < df.size(); ++i )
-            m_indice.push_back( FieldDelegate{FieldPos{&df, i, icol}} );
-        m_bReverseOrder = bReverse;
-        sortRows();
-        return true;
-    }
+    using BaseType = OrderedIndexBase<true>;
+    using BaseType::create;
+
     bool create( const IDataFrame &df, const std::string &colName, bool bReverse = false )
     {
-        return create( df, *df.colIndex( colName ), bReverse );
+        create( df, *df.colIndex( colName ), bReverse );
+        return true;
     }
 };
 
@@ -634,11 +644,11 @@ std::string to_string( const IndexCategory &v )
 }
 
 /// \brief IndexKey : the key to find a index which is unique for a data frame.
-/// Based on IndexType and column indice, system auto determines whether it's SingleCol or MultiCol, HashIndex or HashMultiIndex.
+/// Based on IndexType and column indicess, system auto determines whether it's SingleCol or MultiCol, HashIndex or HashMultiIndex.
 struct IndexKey
 {
     IndexCategory indexCategory; // OrderedIndex, HashIndex
-    std::vector<size_t> cols; // column indice
+    std::vector<size_t> cols; // column indicess
 
     bool operator==( const IndexKey &a ) const
     {
@@ -702,7 +712,7 @@ public:
                 *err << "AddIndex failed: empty column names!.\n";
             return {};
         }
-        auto icols = m_pDataFrame->colIndice( colNames );
+        auto icols = m_pDataFrame->colIndices( colNames );
         if ( icols.empty() )
         {
             if ( err )
@@ -713,7 +723,7 @@ public:
     }
 
     std::optional<iterator> addIndex( IndexType indexType,
-                                      std::vector<size_t> &&colIndice,
+                                      std::vector<size_t> colIndices,
                                       const std::string &indexName = "",
                                       std::ostream *err = nullptr );
 

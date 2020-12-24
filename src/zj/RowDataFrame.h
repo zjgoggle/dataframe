@@ -257,7 +257,7 @@ public:
             return it->second;
         return {};
     }
-    std::vector<size_t> colIndice( const std::vector<std::string> &colNames ) const override
+    std::vector<size_t> colIndices( const std::vector<std::string> &colNames ) const override
     {
         std::vector<size_t> res;
         for ( const auto &n : colNames )

@@ -60,14 +60,14 @@ DFBC             |  length (in bytes)            | NumCols    |  Column Names   
 
 Ordered Index Layout:
 
-1 Byte    | 4-byte cols | Column Indice |4 bytes                       | 4 bytes         | .....
+1 Byte    | 4-byte cols | Column indices |4 bytes                       | 4 bytes         | .....
 --------------------------------------------------------------------------------
 IndexType | NumColumns  | Col0, Col1... | Index of First sorted fields | Index of second | .....
 
 
 Hash Index Layout:
 
-1 Byte        | 4-byte cols | Column Indice
+1 Byte        | 4-byte cols | Column indices
 --------------------------------------------
 HashIndex/'H' | NumColumns  | Col0, Col1...
 
@@ -132,10 +132,7 @@ struct Global
 
 Global &global();
 
-inline bool is_null( std::string_view s )
-{
-    return global().nullstr == s;
-}
+bool is_null( std::string_view s );
 
 template<class T>
 auto Set( const T &v )
@@ -276,6 +273,7 @@ inline bool operator>=( const VarField &a, const VarField &b )
 {
     return !operator<( a, b );
 }
+
 ///////////////////////////////////////////////////////////////
 /// create_default_field
 ///////////////////////////////////////////////////////////////
@@ -508,7 +506,6 @@ inline std::ostream &operator<<( std::ostream &os, const VarField &var )
 template<typename FieldValueT>
 bool from_string( FieldValueT &val, std::string_view s );
 
-
 template<>
 inline bool from_string( Timestamp &val, std::string_view s )
 {
@@ -520,7 +517,6 @@ inline bool from_string( Timestamp &val, std::string_view s )
     }
     return false;
 }
-
 
 template<class T>
 bool from_string( FieldValue<T> &val, std::string_view s )
@@ -588,7 +584,6 @@ inline bool from_string( VarField &var, std::string_view s )
     return std::visit( [&]( auto &fieldval ) { return from_string( fieldval, s ); }, var );
 }
 
-
 ///////////////////////////////////////////////////////////////
 /// hash and compare
 ///////////////////////////////////////////////////////////////
@@ -615,7 +610,6 @@ struct LessThan
     }
 };
 
-
 inline size_t hash_combine( size_t seed, size_t val )
 {
     seed ^= val + 0x9e3779b9 + ( seed << 6 ) + ( seed >> 2 );
@@ -625,8 +619,6 @@ inline size_t hash_bytes( const void *p, size_t len )
 {
     return std::hash<std::string_view>()( std::string_view( (const char *)p, len ) );
 }
-
-
 
 template<class T>
 struct hash_code
@@ -646,16 +638,15 @@ struct HashCode
 };
 static constexpr HashCode hashcode;
 
-
 struct VecHash
 {
     template<class T>
-    bool operator()( const T &lhs ) const
+    size_t operator()( const T &lhs ) const
     {
         size_t r = hashcode( 0 );
         for ( size_t i = 0, N = lhs.size(); i < N; ++i )
         {
-            r = hash_combine( r, hashcode( lhs[i] ) );
+            r = i == 0 ? hashcode( lhs[i] ) : hash_combine( r, hashcode( lhs[i] ) );
         }
         return r;
     }
@@ -814,7 +805,7 @@ public:
         }
         return res;
     }
-    virtual std::vector<size_t> colIndice( const std::vector<std::string> &colNames ) const
+    virtual std::vector<size_t> colIndices( const std::vector<std::string> &colNames ) const
     {
         std::vector<size_t> res;
         for ( const auto &n : colNames )
@@ -832,6 +823,17 @@ public:
         for ( size_t i = 0, N = countCols(); i < N; ++i )
             res.push_back( std::cref( at( irow, i ) ) );
         return res;
+    }
+    std::vector<FieldRef> getRowRef( size_t irow, const std::vector<size_t> &icols ) const
+    {
+        std::vector<FieldRef> res;
+        for ( auto icol : icols )
+            res.push_back( std::cref( at( irow, icol ) ) );
+        return res;
+    }
+    FieldRef getRowRef( size_t irow, size_t icol ) const
+    {
+        return std::cref( at( irow, icol ) );
     }
 
     std::ostream &print( std::ostream &os, bool bHeader = true, char sepField = '|', char sepRow = '\n' ) const

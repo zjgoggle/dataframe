@@ -110,22 +110,22 @@ public:
 /// \brief DataFrameView is a view of selected [rows, columns] of ]underlying DataFrame.
 class DataFrameView : public IDataFrameView
 {
-    std::vector<std::size_t> m_colIndice; // row index of underlying DataFrame.
+    std::vector<std::size_t> m_colIndices; // row index of underlying DataFrame.
     std::unordered_map<std::string, size_t> m_columnNames; // <name: currentIndex>
-    std::vector<std::size_t> m_rowIndice; // row index of underlying DataFrame.
+    std::vector<std::size_t> m_rowIndices; // row index of underlying DataFrame.
 
 public:
-    bool create( const IDataFrame &df, std::vector<std::size_t> &&irows, std::vector<std::size_t> &&icols, std::ostream *err = nullptr )
+    bool create( const IDataFrame &df, std::vector<std::size_t> irows, std::vector<std::size_t> icols, std::ostream *err = nullptr )
     {
         if ( !create_column_view_impl( df, std::move( icols ), err ) )
             return false;
         return create_row_view_impl( df, std::move( irows ), err );
     }
-    bool create( const IDataFrame &df, std::vector<std::size_t> &&irows, std::vector<std::string> &&colNames, std::ostream *err = nullptr )
+    bool create( const IDataFrame &df, std::vector<std::size_t> irows, std::vector<std::string> colNames, std::ostream *err = nullptr )
     {
-        return create( df, std::move( irows ), df.colIndice( colNames ), err );
+        return create( df, std::move( irows ), df.colIndices( colNames ), err );
     }
-    bool create_column_view( const IDataFrame &df, std::vector<std::size_t> &&icols, std::ostream *err = nullptr )
+    bool create_column_view( const IDataFrame &df, std::vector<std::size_t> icols, std::ostream *err = nullptr )
     {
         if ( !create_column_view_impl( df, std::move( icols ), err ) )
             return false;
@@ -133,11 +133,11 @@ public:
         std::iota( irows.begin(), irows.end(), 0 );
         return create_row_view_impl( df, std::move( irows ), err );
     }
-    bool create_column_view( const IDataFrame &df, std::vector<std::string> &&colNames, std::ostream *err = nullptr )
+    bool create_column_view( const IDataFrame &df, std::vector<std::string> colNames, std::ostream *err = nullptr )
     {
-        return create_column_view( df, df.colIndice( colNames ), err );
+        return create_column_view( df, df.colIndices( colNames ), err );
     }
-    bool create_row_view( const IDataFrame &df, std::vector<std::size_t> &&irows, std::ostream *err = nullptr )
+    bool create_row_view( const IDataFrame &df, std::vector<std::size_t> irows, std::ostream *err = nullptr )
     {
         if ( !create_row_view_impl( df, std::move( irows ), err ) )
             return false;
@@ -152,11 +152,11 @@ public:
 
     size_t underlyingRow( size_t irow ) const override
     {
-        return m_rowIndice[irow];
+        return m_rowIndices[irow];
     }
     size_t underlyingCol( size_t icol ) const override
     {
-        return m_colIndice[icol];
+        return m_colIndices[icol];
     }
 
     //////////////////////////////////////////////////////////
@@ -165,11 +165,11 @@ public:
 
     size_t countCols() const override
     {
-        return m_colIndice.size();
+        return m_colIndices.size();
     }
     size_t countRows() const override
     {
-        return m_rowIndice.size();
+        return m_rowIndices.size();
     }
     std::optional<size_t> colIndex( const std::string &colName ) const override
     {
@@ -186,14 +186,14 @@ protected:
         m_pDataFrame = &df;
         if ( df.isView() )
         {
-            m_colIndice.resize( icols.size() );
+            m_colIndices.resize( icols.size() );
             const IDataFrameView *pView = dynamic_cast<const IDataFrameView *>( &df );
             m_pDataFrame = pView->underlying();
             for ( size_t i = 0, N = icols.size(); i < N; ++i )
-                m_colIndice[i] = pView->underlyingCol( icols[i] );
+                m_colIndices[i] = pView->underlyingCol( icols[i] );
         }
         else
-            m_colIndice = std::move( icols );
+            m_colIndices = std::move( icols );
         // construct m_columnNames
         m_columnNames.clear();
         for ( size_t i = 0, N = countCols(); i < N; ++i )
@@ -207,14 +207,14 @@ protected:
         m_pDataFrame = &df;
         if ( df.isView() )
         {
-            m_rowIndice.resize( irows.size() );
+            m_rowIndices.resize( irows.size() );
             const IDataFrameView *pView = dynamic_cast<const IDataFrameView *>( &df );
             m_pDataFrame = pView->underlying();
             for ( size_t i = 0, N = irows.size(); i < N; ++i )
-                m_rowIndice[i] = pView->underlyingRow( irows[i] );
+                m_rowIndices[i] = pView->underlyingRow( irows[i] );
         }
         else
-            m_rowIndice = std::move( irows );
+            m_rowIndices = std::move( irows );
         return true;
     }
 };

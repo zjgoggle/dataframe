@@ -9,4 +9,9 @@ Global &global()
     return s;
 }
 
+bool is_null( std::string_view s )
+{
+    return s == "N/A" || s == "n/a";
+}
+
 } // namespace zj

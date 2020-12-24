@@ -5,7 +5,7 @@ namespace zj
 
 // return index handle
 std::optional<IndexManager::iterator> IndexManager::addIndex( IndexType indexType,
-                                                              std::vector<size_t> &&icols,
+                                                              std::vector<size_t> icols,
                                                               const std::string &indexName,
                                                               std::ostream *err )
 {
@@ -29,7 +29,7 @@ std::optional<IndexManager::iterator> IndexManager::addIndex( IndexType indexTyp
     if ( indexType == IndexType::ReverseOrderedIndex || indexType == IndexType::OrderedIndex )
     {
         MultiColOrderedIndex index;
-        index.create( *m_pDataFrame, std::move( icols ) );
+        index.create( *m_pDataFrame, std::move( icols ), indexType == IndexType::ReverseOrderedIndex );
         val.value = std::move( index );
         key.indexCategory = IndexCategory::OrderedCat;
     }
@@ -40,7 +40,7 @@ std::optional<IndexManager::iterator> IndexManager::addIndex( IndexType indexTyp
         if ( indexType == IndexType::HashIndex && index.isMultiValue() )
         {
             if ( err )
-                *err << "Failed to create HashIndex on cols:" << to_string( icols ) << ".\n";
+                *err << "Failed to create HashIndex on cols:" << to_string( index.m_cols ) << ".\n";
             return {};
         }
         val.value = std::move( index );

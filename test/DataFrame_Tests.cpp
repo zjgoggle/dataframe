@@ -73,7 +73,7 @@ ADD_TEST_CASE( DataFrame_Basic )
     // HashIndex
     {
         HashIndex hidxName;
-        REQUIRE( hidxName.create( df, 0 ) ); // name
+        REQUIRE( hidxName.create( df, 0, &std::cerr ) ); // name
         REQUIRE_EQ( hidxName[fieldval( "Tom" )], 1u );
         REQUIRE_EQ( hidxName[fieldval( "Jeff" )], 3u );
 
@@ -95,7 +95,7 @@ ADD_TEST_CASE( DataFrame_Basic )
     // MultiColOrderedIndex
     {
         MultiColOrderedIndex idxLevelScore;
-        idxLevelScore.create( df, SCols{"Level", "Score"} );
+        REQUIRE( idxLevelScore.create( df, SCols{"Level", "Score"} ) );
 
         REQUIRE_EQ( idxLevelScore[0], 2u ); // Jonathon
 
@@ -114,7 +114,7 @@ ADD_TEST_CASE( DataFrame_Basic )
     // MultiColHashMultiIndex
     {
         MultiColHashMultiIndex hidxLevel;
-        hidxLevel.create( df, StrVec{"Level"} );
+        REQUIRE( hidxLevel.create( df, StrVec{"Level"} ) );
 
         Record key{fieldval( 'A' )};
         REQUIRE_EQ( Set( hidxLevel[key] ), Set( ULongVec{0, 2} ) ); // John, Jonathon
@@ -138,6 +138,16 @@ ADD_TEST_CASE( DataFrame_Basic )
         DataFrameView gv;
         REQUIRE( gv.create( df, IRows{1, 2, 3}, SCols{"Name", "Level"}, &std::cerr ) );
         std::cout << "---- DataFrameView: Name, Level [1..3] ----\n";
+        gv.print( std::cout );
+    }
+    // View & Index
+    {
+        OrderedIndex orderedAge;
+        orderedAge.create( df, "Age" );
+        DataFrameView gv;
+        gv.create( df, orderedAge.getRowIndices(), SCols{"Name", "Level", "Age"} );
+        REQUIRE_EQ( gv.at( 0, "Name" ), fieldval( "Jeff" ) );
+        std::cout << "---- DataFrameView: sorted by age ----\n";
         gv.print( std::cout );
     }
 }
