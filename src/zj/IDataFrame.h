@@ -99,6 +99,7 @@ enum class FieldTypeTag : u_char
     Float64Vec,
     TimestampVec,
 
+    End,
     VectorFlag = StrVec,
 };
 
@@ -123,6 +124,13 @@ inline bool operator<( const Null &, const Null & )
 {
     return false;
 }
+enum class NullPolicy
+{
+    Allow,
+    Ignore,
+    Error,
+};
+
 struct Global
 {
     static constexpr const char *defaultNullStr = "N/A";
@@ -209,7 +217,7 @@ DEFINE_FIELDVALUE( Float64Vec, std::vector<double>, VAR_LENGTH );
 DEFINE_FIELDVALUE( TimestampVec, std::vector<Timestamp>, VAR_LENGTH );
 
 
-
+/// \note the order of each field type must be consistent with the order of values in FieldTypeTag.
 using VarField = std::variant<NullField,
                               StrField,
                               BoolField,
@@ -232,6 +240,8 @@ using VarField = std::variant<NullField,
 using FieldRef = std::reference_wrapper<const VarField>;
 
 using Record = std::vector<VarField>;
+
+using Rowindex = size_t;
 
 struct Series
 {
@@ -273,6 +283,8 @@ inline bool operator>=( const VarField &a, const VarField &b )
 {
     return !operator<( a, b );
 }
+
+
 
 ///////////////////////////////////////////////////////////////
 /// create_default_field
@@ -317,9 +329,27 @@ auto static_invoke_for_type( FieldTypeTag typeTag, Func &&func, Args &&... args 
         return func.template invoke<std::vector<float>>( std::forward<Args>( args )... );
     case FieldTypeTag::Float64Vec:
         return func.template invoke<std::vector<double>>( std::forward<Args>( args )... );
-    default: // FieldTypeTag::TimestampVec:
+    case FieldTypeTag::TimestampVec:
         return func.template invoke<std::vector<Timestamp>>( std::forward<Args>( args )... );
+    default:
+        throw std::runtime_error( "Invalid typeTag:" + std::to_string( int( typeTag ) ) );
     }
+}
+
+struct GetFieldTypeName
+{
+    template<class T>
+    constexpr const char *invoke() const
+    {
+        return FieldValue<T>::typeName;
+    }
+};
+
+inline const char *typeName( FieldTypeTag typeTag )
+{
+    if ( typeTag >= FieldTypeTag::End )
+        return "Invalid FieldTypeTag";
+    return static_invoke_for_type( typeTag, GetFieldTypeName() );
 }
 
 template<class T, class... Args>
@@ -359,17 +389,28 @@ inline VarField create_default_field( FieldTypeTag typeTag )
     return static_invoke_for_type( typeTag, CreateField() );
 }
 
-
 /// \brief Create record from tuple.
 template<size_t nth = 0, class T, class... Args>
-void create_record( Record &rec, const std::tuple<T, Args...> &tup )
+bool create_record( Record &rec, const std::tuple<T, Args...> &tup, std::ostream *err = nullptr, bool allowNullField = true )
 {
     VarField var = fieldval( std::get<nth>( tup ) );
+    if ( var.index() == 0 && !allowNullField )
+    {
+        if ( err )
+            *err << "Null field is not allowed!\n";
+        return false;
+    }
     rec.push_back( std::move( var ) );
     if constexpr ( ( std::tuple_size_v<std::tuple<T, Args...>> ) > nth + 1 )
-    {
-        create_record<nth + 1>( rec, tup );
-    }
+        return create_record<nth + 1>( rec, tup );
+    else
+        return true;
+}
+
+template<class... Args>
+Record record( Args &&... args )
+{
+    return Record{fieldval( std::forward<Args>( args ) )...};
 }
 
 template<size_t nth = 0, class T, class... Args>
@@ -383,19 +424,34 @@ void create_columns( ColumnDefs &rec, const std::vector<std::string> &names )
     }
 }
 
-struct GetFieldTypeName
+inline bool is_field_compatible( const VarField &field, const ColumnDef &col, bool allowNullField = true )
 {
-    template<class T>
-    constexpr const char *invoke() const
-    {
-        return FieldValue<T>::typeName;
-    }
-};
-
-inline const char *typeName( FieldTypeTag typeTag )
-{
-    return static_invoke_for_type( typeTag, GetFieldTypeName() );
+    int fieldType = int( field.index() ), colType = int( col.colTypeTag );
+    if ( fieldType == 0 )
+        return allowNullField;
+    return fieldType == colType;
 }
+inline bool is_record_compatible( const Record &rec, const ColumnDefs &cols, std::ostream *err = nullptr, bool allowNullField = true )
+{
+    if ( rec.size() != cols.size() )
+    {
+        if ( err )
+            *err << "Record size is not the same as columns: " << rec.size() << "!=" << cols.size() << ".\n";
+        return false;
+    }
+    for ( size_t i = 0, N = rec.size(); i < N; ++i )
+    {
+        if ( !is_field_compatible( rec[i], cols[i], allowNullField ) )
+        {
+            if ( err )
+                *err << "Incompatible field type:" << typeName( FieldTypeTag( rec[i].index() ) )
+                     << ", colType:" << typeName( FieldTypeTag( cols[i].colTypeTag ) ) << ".\n";
+            return false;
+        }
+    }
+    return true;
+}
+
 
 ///////////////////////////////////////////////////////////////
 /// to_str
@@ -740,8 +796,9 @@ struct VecLess
     template<class T, class U>
     bool operator()( const T &lhs, const U &rhs ) const
     {
-        const size_t N = lhs.size(), M = rhs.size();
-        for ( size_t i = 0, N = std::min( N, M ); i < N; ++i )
+        const size_t N = lhs.size();
+        const size_t M = rhs.size();
+        for ( size_t i = 0, L = std::min( N, M ); i < L; ++i )
         {
             if ( lhs[i] < rhs[i] )
                 return true;
@@ -759,6 +816,10 @@ enum class IndexType : char
     HashIndex = 'H', // key: SingleValue
     HashMultiIndex = 'M', // key:MultiValues
 };
+
+///////////////////////////////////////////////////////////////
+/// IDataFrame
+///////////////////////////////////////////////////////////////
 
 class IDataFrame
 {
@@ -805,7 +866,7 @@ public:
         }
         return res;
     }
-    virtual std::vector<size_t> colIndices( const std::vector<std::string> &colNames ) const
+    virtual std::vector<size_t> colIndices( const std::vector<std::string> &colNames, std::ostream *err = nullptr ) const
     {
         std::vector<size_t> res;
         for ( const auto &n : colNames )
@@ -813,7 +874,11 @@ public:
             if ( auto r = colIndex( n ) )
                 res.push_back( *r );
             else
+            {
+                if ( err )
+                    *err << "colIndices: column doesn't exist:" << n << ".\n";
                 return {};
+            }
         }
         return res;
     }
@@ -864,5 +929,215 @@ public:
         return os;
     }
 };
+
+///////////////////////////////////////////////////////////////
+/// RecordOrFieldRef
+///////////////////////////////////////////////////////////////
+
+template<bool isSingleT>
+struct RecordOrFieldRef
+{
+    static constexpr auto isSingle = isSingleT;
+    using RecordType = std::conditional_t<isSingle, VarField, Record>;
+    using ColsType = std::conditional_t<isSingle, size_t, std::vector<size_t>>;
+
+    const IDataFrame *df = nullptr;
+    Rowindex irow = 0;
+    const ColsType *icols = nullptr; // vector<size_t>* or size_t*
+
+    size_t size() const
+    {
+        if constexpr ( isSingle )
+            return 1;
+        else
+            return icols->size();
+    }
+    const VarField &at( size_t nthField ) const
+    {
+        if constexpr ( isSingle )
+        {
+            assert( nthField == 0 );
+            return df->at( irow, *icols );
+        }
+        else
+        {
+            if ( nthField >= icols->size() )
+                throw std::out_of_range( "RecordRef nthField:" + std::to_string( nthField ) + " >= " + std::to_string( icols->size() ) );
+            return df->at( irow, icols->at( nthField ) );
+        }
+    }
+    const VarField &operator[]( size_t nthField ) const
+    {
+        return at( nthField );
+    }
+};
+template<bool isSingle>
+struct hash_code<RecordOrFieldRef<isSingle>>
+{
+    size_t operator()( const RecordOrFieldRef<isSingle> &v ) const
+    {
+        return VecHash()( v );
+    }
+};
+
+template<bool isSingle>
+bool operator==( const RecordOrFieldRef<isSingle> &a, const RecordOrFieldRef<isSingle> &b )
+{
+    if ( a.df == b.df && a.icols == b.icols && a.irow == b.irow )
+        return true;
+    if constexpr ( isSingle )
+        return a.at( 0 ) == b.at( 0 );
+    else
+        return VecEqual()( a, b );
+}
+template<bool isSingle>
+bool operator==( const typename RecordOrFieldRef<isSingle>::RecordType &a, const RecordOrFieldRef<isSingle> &b )
+{
+    if constexpr ( isSingle )
+        return a == b.at( 0 );
+    else
+        return VecEqual()( a, b );
+}
+template<bool isSingle>
+bool operator==( const RecordOrFieldRef<isSingle> &a, const typename RecordOrFieldRef<isSingle>::RecordType &b )
+{
+    return b == a;
+}
+
+template<bool isSingle>
+bool operator<( const RecordOrFieldRef<isSingle> &a, const RecordOrFieldRef<isSingle> &val )
+{
+    if constexpr ( isSingle )
+        return a.at( 0 ) < val.at( 0 );
+    else
+        return VecLess()( a, val );
+}
+template<bool isSingle>
+bool operator<( const RecordOrFieldRef<isSingle> &a, const typename RecordOrFieldRef<isSingle>::RecordType &val )
+{
+    if constexpr ( isSingle )
+        return a.at( 0 ) < val;
+    else
+        return VecLess()( a, val );
+}
+template<bool isSingle>
+bool operator<( const typename RecordOrFieldRef<isSingle>::RecordType &val, const RecordOrFieldRef<isSingle> &a )
+{
+    if constexpr ( isSingle )
+        return val < a.at( 0 );
+    else
+        return VecLess()( val, a );
+}
+
+struct FieldHashDelegate
+{
+    using position_type = RecordOrFieldRef<true>;
+    using value_type = VarField;
+    std::variant<position_type, VarField> m_data; // VarField is only used for hash lookup
+
+    bool has_value() const
+    {
+        return m_data.index() == 1 || std::get<0>( m_data ).df;
+    }
+
+    // return row index
+    size_t index() const
+    {
+        if ( m_data.index() == 0 )
+        {
+            const position_type &pos = std::get<0>( m_data );
+            assert( pos.df && "FieldHashDelegate not initialized!" );
+            return pos.irow;
+        }
+        else
+        {
+            throw std::invalid_argument( "FieldHashDelegate has VarField. Expected Pos!" );
+        }
+    }
+    const VarField &get() const
+    {
+        if ( m_data.index() == 0 )
+        {
+            return std::get<0>( m_data ).at( 0 );
+        }
+        else
+            return std::get<1>( m_data );
+    }
+    const VarField &operator*() const
+    {
+        return get();
+    }
+};
+template<>
+struct hash_code<FieldHashDelegate>
+{
+    size_t operator()( const FieldHashDelegate &a ) const
+    {
+        auto r = hashcode( a.m_data );
+        return r;
+    }
+};
+
+inline bool operator==( const FieldHashDelegate &a, const FieldHashDelegate &b )
+{
+    return a.get() == b.get();
+}
+
+
+// multi-column Fields
+struct MultiColFieldsHashDelegate
+{
+    using position_type = RecordOrFieldRef<false>;
+    using value_type = Record;
+
+    std::variant<position_type, Record> m_data; // Record is only used for hash lookup
+
+    bool has_value() const
+    {
+        return m_data.index() == 1 || std::get<0>( m_data ).df;
+    }
+
+    // return row index
+    size_t index() const
+    {
+        if ( m_data.index() == 0 )
+        {
+            const position_type &pos = std::get<0>( m_data );
+            assert( pos.df && "FieldHashDelegate not initialized!" );
+            return pos.irow;
+        }
+        else
+        {
+            throw std::invalid_argument( "FieldHashDelegate has VarField. Expected Pos!" );
+        }
+    }
+};
+
+template<>
+struct hash_code<MultiColFieldsHashDelegate>
+{
+    size_t operator()( const MultiColFieldsHashDelegate &a ) const
+    {
+        auto r = hashcode( a.m_data );
+        return r;
+    }
+};
+inline bool operator==( const MultiColFieldsHashDelegate &a, const MultiColFieldsHashDelegate &b )
+{
+    int x = a.m_data.index() | ( b.m_data.index() << 1 );
+    switch ( x )
+    {
+    case 0:
+        return VecEqual()( std::get<0>( a.m_data ), std::get<0>( b.m_data ) );
+    case 1:
+        return VecEqual()( std::get<1>( a.m_data ), std::get<0>( b.m_data ) );
+    case 2:
+        return VecEqual()( std::get<0>( a.m_data ), std::get<1>( b.m_data ) );
+    case 3:
+        return VecEqual()( std::get<1>( a.m_data ), std::get<1>( b.m_data ) );
+    default:
+        assert( false && "Never reach here!" );
+    }
+}
 
 } // namespace zj

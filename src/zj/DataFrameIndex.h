@@ -22,214 +22,7 @@
 namespace zj
 {
 
-using Rowindex = size_t;
 
-template<bool isSingleT>
-struct RecordOrFieldRef
-{
-    static constexpr auto isSingle = isSingleT;
-    using RecordType = std::conditional_t<isSingle, VarField, Record>;
-    using ColsType = std::conditional_t<isSingle, size_t, std::vector<size_t>>;
-
-    const IDataFrame *df = nullptr;
-    Rowindex irow = 0;
-    const ColsType *icols = nullptr; // vector<size_t>* or size_t*
-
-    size_t size() const
-    {
-        if constexpr ( isSingle )
-            return 1;
-        else
-            return icols->size();
-    }
-    const VarField &at( size_t nthField ) const
-    {
-        if constexpr ( isSingle )
-        {
-            assert( nthField == 0 );
-            return df->at( irow, *icols );
-        }
-        else
-        {
-            if ( nthField >= icols->size() )
-                throw std::out_of_range( "RecordRef nthField:" + std::to_string( nthField ) + " >= " + std::to_string( icols->size() ) );
-            return df->at( irow, icols->at( nthField ) );
-        }
-    }
-    const VarField &operator[]( size_t nthField ) const
-    {
-        return at( nthField );
-    }
-};
-template<bool isSingle>
-struct hash_code<RecordOrFieldRef<isSingle>>
-{
-    size_t operator()( const RecordOrFieldRef<isSingle> &v ) const
-    {
-        return VecHash()( v );
-    }
-};
-
-template<bool isSingle>
-bool operator==( const RecordOrFieldRef<isSingle> &a, const RecordOrFieldRef<isSingle> &b )
-{
-    if ( a.df == b.df && a.icols == b.icols && a.irow == b.irow )
-        return true;
-    if constexpr ( isSingle )
-        return a.at( 0 ) == b.at( 0 );
-    else
-        return VecEqual()( a, b );
-}
-template<bool isSingle>
-bool operator==( const typename RecordOrFieldRef<isSingle>::RecordType &a, const RecordOrFieldRef<isSingle> &b )
-{
-    if constexpr ( isSingle )
-        return a == b.at( 0 );
-    else
-        return VecEqual()( a, b );
-}
-template<bool isSingle>
-bool operator==( const RecordOrFieldRef<isSingle> &a, const typename RecordOrFieldRef<isSingle>::RecordType &b )
-{
-    return b == a;
-}
-
-template<bool isSingle>
-bool operator<( const RecordOrFieldRef<isSingle> &a, const RecordOrFieldRef<isSingle> &val )
-{
-    if constexpr ( isSingle )
-        return a.at( 0 ) < val.at( 0 );
-    else
-        return VecLess()( a, val );
-}
-template<bool isSingle>
-bool operator<( const RecordOrFieldRef<isSingle> &a, const typename RecordOrFieldRef<isSingle>::RecordType &val )
-{
-    if constexpr ( isSingle )
-        return a.at( 0 ) < val;
-    else
-        return VecLess()( a, val );
-}
-template<bool isSingle>
-bool operator<( const typename RecordOrFieldRef<isSingle>::RecordType &val, const RecordOrFieldRef<isSingle> &a )
-{
-    if constexpr ( isSingle )
-        return val < a.at( 0 );
-    else
-        return VecLess()( val, a );
-}
-
-
-struct FieldHashDelegate
-{
-    using position_type = RecordOrFieldRef<true>;
-    using value_type = VarField;
-    std::variant<position_type, VarField> m_data; // VarField is only used for hash lookup
-
-    bool has_value() const
-    {
-        return m_data.index() == 1 || std::get<0>( m_data ).df;
-    }
-
-    // return row index
-    size_t index() const
-    {
-        if ( m_data.index() == 0 )
-        {
-            const position_type &pos = std::get<0>( m_data );
-            assert( pos.df && "FieldHashDelegate not initialized!" );
-            return pos.irow;
-        }
-        else
-        {
-            throw std::invalid_argument( "FieldHashDelegate has VarField. Expected Pos!" );
-        }
-    }
-    const VarField &get() const
-    {
-        if ( m_data.index() == 0 )
-        {
-            return std::get<0>( m_data ).at( 0 );
-        }
-        else
-            return std::get<1>( m_data );
-    }
-    const VarField &operator*() const
-    {
-        return get();
-    }
-};
-template<>
-struct hash_code<FieldHashDelegate>
-{
-    size_t operator()( const FieldHashDelegate &a ) const
-    {
-        auto r = hashcode( a.m_data );
-        return r;
-    }
-};
-
-inline bool operator==( const FieldHashDelegate &a, const FieldHashDelegate &b )
-{
-    return a.get() == b.get();
-}
-
-
-// multi-column Fields
-struct MultiColFieldsHashDelegate
-{
-    using position_type = RecordOrFieldRef<false>;
-    using value_type = Record;
-
-    std::variant<position_type, Record> m_data; // Record is only used for hash lookup
-
-    bool has_value() const
-    {
-        return m_data.index() == 1 || std::get<0>( m_data ).df;
-    }
-
-    // return row index
-    size_t index() const
-    {
-        if ( m_data.index() == 0 )
-        {
-            const position_type &pos = std::get<0>( m_data );
-            assert( pos.df && "FieldHashDelegate not initialized!" );
-            return pos.irow;
-        }
-        else
-        {
-            throw std::invalid_argument( "FieldHashDelegate has VarField. Expected Pos!" );
-        }
-    }
-};
-
-template<>
-struct hash_code<MultiColFieldsHashDelegate>
-{
-    size_t operator()( const MultiColFieldsHashDelegate &a ) const
-    {
-        auto r = hashcode( a.m_data );
-        return r;
-    }
-};
-bool operator==( const MultiColFieldsHashDelegate &a, const MultiColFieldsHashDelegate &b )
-{
-    int x = a.m_data.index() | ( b.m_data.index() << 1 );
-    switch ( x )
-    {
-    case 0:
-        return VecEqual()( std::get<0>( a.m_data ), std::get<0>( b.m_data ) );
-    case 1:
-        return VecEqual()( std::get<1>( a.m_data ), std::get<0>( b.m_data ) );
-    case 2:
-        return VecEqual()( std::get<0>( a.m_data ), std::get<1>( b.m_data ) );
-    case 3:
-        return VecEqual()( std::get<1>( a.m_data ), std::get<1>( b.m_data ) );
-    default:
-        assert( false && "Never reach here!" );
-    }
-}
 
 ///////////////////////////////////////////////////////////////////////////
 /// HashMultiIndex
@@ -291,12 +84,10 @@ struct MultiColHashIndex : public HashIndexBase<MultiColFieldsHashDelegate>
     }
     bool create( const IDataFrame &df, const std::vector<std::string> &colNames, std::ostream *err = nullptr )
     {
-        if ( auto icols = df.colIndices( colNames ); !icols.empty() )
+        if ( auto icols = df.colIndices( colNames, err ); !icols.empty() )
         {
             return create( df, std::move( icols ), err );
         }
-        if ( err )
-            *err << "Failed to find colNames: " << to_string( colNames ) << ".\n";
         return false;
     }
 };
@@ -426,9 +217,9 @@ struct MultiColHashMultiIndex : public HashMultiIndexBase<MultiColFieldsHashDele
                 m_isMultiValue = true;
         }
     }
-    bool create( const IDataFrame &df, const std::vector<std::string> &colNames )
+    bool create( const IDataFrame &df, const std::vector<std::string> &colNames, std::ostream *err = nullptr )
     {
-        if ( auto icols = df.colIndices( colNames ); !icols.empty() )
+        if ( auto icols = df.colIndices( colNames, err ); !icols.empty() )
         {
             create( df, std::move( icols ) );
             return true;
@@ -603,9 +394,9 @@ struct MultiColOrderedIndex : public OrderedIndexBase<false>
     using BaseType = OrderedIndexBase<false>;
     using BaseType::create;
 
-    bool create( const IDataFrame &df, const std::vector<std::string> &colNames, bool bReverseOrder = false )
+    bool create( const IDataFrame &df, const std::vector<std::string> &colNames, bool bReverseOrder = false, std::ostream *err = nullptr )
     {
-        if ( auto icols = df.colIndices( colNames ); !icols.empty() )
+        if ( auto icols = df.colIndices( colNames, err ); !icols.empty() )
         {
             create( df, std::move( icols ), bReverseOrder );
             return true;
@@ -669,6 +460,8 @@ struct hash_code<IndexKey>
     }
 };
 
+// df.where( Col("Age") > 10 && isin("Level", Set('A', 'B'))  )
+// df.where( Col("A
 class IndexManager
 {
 public:
@@ -712,11 +505,11 @@ public:
                 *err << "AddIndex failed: empty column names!.\n";
             return {};
         }
-        auto icols = m_pDataFrame->colIndices( colNames );
+        auto icols = m_pDataFrame->colIndices( colNames, err );
         if ( icols.empty() )
         {
             if ( err )
-                *err << "AddIndex failed: couldn't find column names: " << to_string( colNames ) << ".\n";
+                *err << "AddIndex failed: " << to_string( colNames ) << ".\n";
             return {};
         }
         return addIndex( indexType, std::move( icols ), indexName, err );

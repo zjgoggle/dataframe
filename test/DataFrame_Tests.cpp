@@ -3,6 +3,7 @@
 #include <zj/DataFrameIndex.h>
 #include <zj/RowDataFrame.h>
 #include <zj/DataFrameView.h>
+#include <zj/Condition.h>
 
 
 UNITTEST_MAIN
@@ -11,7 +12,7 @@ using namespace zj;
 ADD_TEST_CASE( DataFrame_Basic )
 {
     RowDataFrame df, df1;
-
+    //    ConditionIsIn<false> isIn2;
     { // ParseTimestamp
         //        auto opDateTime = ParseDateTime( "20201225 12:05:02-4", &std::cerr );
         //        REQUIRE_EQ( *opDateTime, *ParseDateTime( opDateTime->to_string(), &std::cerr ) );
@@ -149,5 +150,27 @@ ADD_TEST_CASE( DataFrame_Basic )
         REQUIRE_EQ( gv.at( 0, "Name" ), fieldval( "Jeff" ) );
         std::cout << "---- DataFrameView: sorted by age ----\n";
         gv.print( std::cout );
+    }
+    // Condition
+    {
+        ConditionCompare<true> nameEQ;
+        REQUIRE( nameEQ.init( &df, "Name", CompareTag::EQ, fieldval( "Jeff" ), &std::cerr ) );
+        REQUIRE( !nameEQ.evalAtRow( 0 ) );
+        REQUIRE( nameEQ.evalAtRow( 3 ) );
+
+        ConditionCompare<false> ageLevelGE;
+        REQUIRE( ageLevelGE.init( &df, {"Level", "Age"}, CompareTag::GE, record( 'B', 18 ), &std::cerr ) );
+        REQUIRE( !ageLevelGE.evalAtRow( 0 ) );
+        REQUIRE( ageLevelGE.evalAtRow( 1 ) );
+        REQUIRE( !ageLevelGE.evalAtRow( 2 ) );
+        REQUIRE( ageLevelGE.evalAtRow( 3 ) );
+
+        ConditionIsIn<true> isInNames;
+        REQUIRE( isInNames.init( &df, "Name", {fieldval( "John" ), fieldval( "Jeff" )}, &std::cerr ) );
+        REQUIRE( isInNames.evalAtRow( 0 ) );
+        REQUIRE( !isInNames.evalAtRow( 1 ) );
+        REQUIRE( !isInNames.evalAtRow( 2 ) );
+        REQUIRE( isInNames.evalAtRow( 3 ) );
+        ConditionIsIn<false> isIn2;
     }
 }

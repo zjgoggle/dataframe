@@ -34,6 +34,8 @@ protected:
 
     std::unordered_map<std::string, size_t> m_columnNames; // <name: index>
 
+    bool m_allowNullField = true;
+
 public:
     RowDataFrame() = default;
 
@@ -57,35 +59,49 @@ public:
         clear();
         m_columnDefs = columnDefs;
         // convert strings to FieldValue types.
-        int irow = 0;
         for ( const auto &row : rows )
         {
-            if ( row.size() != columnDefs.size() )
-            {
-                if ( err )
-                    *err << "from_records: Failed construct row=" << irow << ". NumFields=" << row.size()
-                         << " is not equal to columns=" << columnDefs.size() << ".\n";
+            if ( !appendRecordStr( row, err ) )
                 return false;
-            }
-            Record rec;
-            for ( size_t i = 0; i < columnDefs.size(); ++i )
-            {
-                VarField afield = create_default_field( columnDefs[i].colTypeTag );
-                if ( from_string( afield, row[i] ) )
-                {
-                    rec.emplace_back( std::move( afield ) );
-                }
-                else
-                {
-                    if ( err )
-                        *err << "from_records: Failed to parse (row=" << irow << ", col=" << i << "): " << row[i] << ".\n";
-                    return false;
-                }
-            }
-            m_records.push_back( std::move( rec ) );
-            ++irow;
         }
         createColumnIndex();
+        return true;
+    }
+
+    bool appendRecordStr( const std::vector<std::string> &row, std::ostream *err = nullptr )
+    {
+        if ( m_columnDefs.empty() )
+        {
+            if ( err )
+                *err << "Failed appendRecordStr: RowDataFrame is not created yet!\n";
+            return false;
+        }
+
+        if ( row.size() != m_columnDefs.size() )
+        {
+            if ( err )
+                *err << "from_records: Failed construct row=" << to_string( row ) << ". NumFields=" << row.size()
+                     << " is not equal to columns=" << m_columnDefs.size() << ".\n";
+            return false;
+        }
+        Record rec;
+        for ( size_t i = 0; i < m_columnDefs.size(); ++i )
+        {
+            VarField afield = create_default_field( m_columnDefs[i].colTypeTag );
+            if ( from_string( afield, row[i] ) )
+            {
+                rec.emplace_back( std::move( afield ) );
+            }
+            else
+            {
+                if ( err )
+                    *err << "from_records: Failed to parse (row element=" << to_string( row[i] ) << ", col=" << i << ").\n";
+                return false;
+            }
+        }
+        if ( !is_record_compatible( rec, m_columnDefs, err, m_allowNullField ) )
+            return false;
+        m_records.push_back( std::move( rec ) );
         return true;
     }
 
@@ -116,10 +132,35 @@ public:
         for ( const auto &tup : tups )
         {
             Record rec;
-            create_record( rec, tup );
+            if ( !create_record( rec, tup, err, m_allowNullField ) )
+                return false;
             m_records.push_back( std::move( rec ) );
         }
         createColumnIndex();
+        return true;
+    }
+
+    template<class... T>
+    bool appendTupple( const std::tuple<T...> &tup, std::ostream *err = nullptr )
+    {
+        if ( m_columnDefs.empty() )
+        {
+            if ( err )
+                *err << "Failed appendRecordStr: RowDataFrame is not created yet!\n";
+            return false;
+        }
+        auto tupSize = std::tuple_size_v<std::tuple<T...>>;
+        if ( tupSize != m_columnDefs.size() )
+        {
+            if ( err )
+                *err << "appendTupple: Failed construct row=" << to_string( tup ) << ". NumFields=" << tupSize
+                     << " is not equal to columns=" << m_columnDefs.size() << ".\n";
+            return false;
+        }
+        Record rec;
+        if ( !create_record( rec, tup, err, m_allowNullField ) )
+            return false;
+        m_records.push_back( std::move( rec ) );
         return true;
     }
 
@@ -256,18 +297,6 @@ public:
         if ( auto it = m_columnNames.find( colName ); it != m_columnNames.end() )
             return it->second;
         return {};
-    }
-    std::vector<size_t> colIndices( const std::vector<std::string> &colNames ) const override
-    {
-        std::vector<size_t> res;
-        for ( const auto &n : colNames )
-        {
-            if ( auto r = colIndex( n ) )
-                res.push_back( *r );
-            else
-                return {};
-        }
-        return res;
     }
 
     void clearRecords()
