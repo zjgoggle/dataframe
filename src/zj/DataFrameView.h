@@ -123,7 +123,7 @@ public:
     }
     bool create( const IDataFrame &df, std::vector<std::size_t> irows, std::vector<std::string> colNames, std::ostream *err = nullptr )
     {
-        return create( df, std::move( irows ), df.colIndices( colNames ), err );
+        return create( df, std::move( irows ), df.colIndex( colNames ), err );
     }
     bool create_column_view( const IDataFrame &df, std::vector<std::size_t> icols, std::ostream *err = nullptr )
     {
@@ -135,7 +135,7 @@ public:
     }
     bool create_column_view( const IDataFrame &df, std::vector<std::string> colNames, std::ostream *err = nullptr )
     {
-        return create_column_view( df, df.colIndices( colNames ), err );
+        return create_column_view( df, df.colIndex( colNames ), err );
     }
     bool create_row_view( const IDataFrame &df, std::vector<std::size_t> irows, std::ostream *err = nullptr )
     {
@@ -171,11 +171,11 @@ public:
     {
         return m_rowIndices.size();
     }
-    std::optional<size_t> colIndex( const std::string &colName ) const override
+    size_t colIndex( const std::string &colName ) const override
     {
         if ( auto it = m_columnNames.find( colName ); it != m_columnNames.end() )
             return it->second;
-        return {};
+        throw std::out_of_range( "Failed to find DataFrameView column name: " + colName );
     }
 
 protected:

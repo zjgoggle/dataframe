@@ -108,11 +108,7 @@ struct ConditionCompare : public ICondition
         m_df = df;
         m_compareTag = compareTag;
 
-        if constexpr ( bSingleCol )
-        {
-            m_col = *m_df->colIndex( colnames );
-        }
-        else
+        if constexpr ( !bSingleCol )
         {
             if ( colnames.size() != val.size() )
             {
@@ -121,11 +117,8 @@ struct ConditionCompare : public ICondition
                          << " FieldCount:" << val.size() << " .\n";
                 return false;
             }
-            auto icol = m_df->colIndices( colnames, err );
-            if ( icol.empty() )
-                return false;
-            m_col = std::move( icol );
         }
+        m_col = std::move( m_df->colIndex( colnames ) );
         if ( !checkFieldCompatible( df, m_col, val, err ) )
             return false;
         m_val = std::move( val );
@@ -145,38 +138,38 @@ struct ConditionIsIn : public ICondition
     using RecordRef = RecordOrFieldRef<bSingleCol>;
     using ColNames = std::conditional_t<bSingleCol, std::string, std::vector<std::string>>;
 
-    using SetValueType = std::conditional_t<bSingleCol, FieldHashDelegate, MultiColFieldsHashDelegate>;
+    using ValueType = std::conditional_t<bSingleCol, FieldHashDelegate, MultiColFieldsHashDelegate>;
 
     const IDataFrame *m_df;
     ColIndex m_col; // column indices
-    std::unordered_set<SetValueType, HashCode> m_val; // todo use hash delegate
+    std::unordered_set<ValueType, HashCode> m_val; // todo use hash delegate
 
     bool init( const IDataFrame *df, ColNames colnames, std::vector<RecordType> records, std::ostream *err = nullptr )
     {
         m_df = df;
 
-        if constexpr ( bSingleCol )
+        if constexpr ( !bSingleCol )
         {
-            m_col = *m_df->colIndex( colnames );
-        }
-        else
-        {
-            auto icol = m_df->colIndices( colnames, err );
-            if ( icol.empty() )
+            if ( colnames.size() != records.at( 0 ).size() )
+            {
+                if ( err )
+                    *err << "ColumnCount:" << colnames.size() << " != "
+                         << " FieldCount:" << records.at( 0 ).size() << " .\n";
                 return false;
-            m_col = std::move( icol );
+            }
         }
+        m_col = std::move( m_df->colIndex( colnames ) );
 
         for ( const auto &e : records )
             if ( !checkFieldCompatible( df, m_col, e, err ) )
                 return false;
         for ( auto &&e : records )
-            m_val.emplace( SetValueType{std::move( e )} );
+            m_val.emplace( ValueType{std::move( e )} );
         return true;
     }
     bool evalAtRow( Rowindex irow ) const override
     {
-        return m_val.count( SetValueType{typename SetValueType::position_type{m_df, irow, &m_col}} );
+        return m_val.count( ValueType{typename ValueType::position_type{m_df, irow, &m_col}} );
     }
 };
 

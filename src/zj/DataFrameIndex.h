@@ -75,7 +75,7 @@ struct MultiColHashIndex : public HashIndexBase<MultiColFieldsHashDelegate>
             if ( !m_indices.insert( val ).second )
             {
                 if ( err )
-                    *err << "Failed to create MultiColHashIndex for cols:" << to_string( df.colNames( icols ) ) << ". Found dupliate record: at row"
+                    *err << "Failed to create MultiColHashIndex for cols:" << to_string( df.colName( icols ) ) << ". Found dupliate record: at row"
                          << to_string( df.getRowRef( i, m_cols ) ) << ".\n";
                 return false;
             }
@@ -84,7 +84,7 @@ struct MultiColHashIndex : public HashIndexBase<MultiColFieldsHashDelegate>
     }
     bool create( const IDataFrame &df, const std::vector<std::string> &colNames, std::ostream *err = nullptr )
     {
-        if ( auto icols = df.colIndices( colNames, err ); !icols.empty() )
+        if ( auto icols = df.colIndex( colNames ); !icols.empty() )
         {
             return create( df, std::move( icols ), err );
         }
@@ -117,13 +117,7 @@ struct HashIndex : public HashIndexBase<FieldHashDelegate>
     }
     bool create( const IDataFrame &df, const std::string &colName, std::ostream *err = nullptr )
     {
-        if ( auto icol = df.colIndex( colName ) )
-        {
-            return create( df, std::move( *icol ), err );
-        }
-        if ( err )
-            *err << "Failed to find colName: " << colName << ".\n";
-        return false;
+        return create( df, df.colIndex( colName ), err );
     }
 };
 
@@ -186,14 +180,9 @@ struct HashMultiIndex : public HashMultiIndexBase<FieldHashDelegate>
                 m_isMultiValue = true;
         }
     }
-    bool create( const IDataFrame &df, const std::string &colName )
+    void create( const IDataFrame &df, const std::string &colName )
     {
-        if ( auto icol = df.colIndex( colName ) )
-        {
-            create( df, std::move( *icol ) );
-            return true;
-        }
-        return false;
+        create( df, df.colIndex( colName ) );
     }
 };
 
@@ -217,14 +206,9 @@ struct MultiColHashMultiIndex : public HashMultiIndexBase<MultiColFieldsHashDele
                 m_isMultiValue = true;
         }
     }
-    bool create( const IDataFrame &df, const std::vector<std::string> &colNames, std::ostream *err = nullptr )
+    void create( const IDataFrame &df, const std::vector<std::string> &colNames )
     {
-        if ( auto icols = df.colIndices( colNames, err ); !icols.empty() )
-        {
-            create( df, std::move( icols ) );
-            return true;
-        }
-        return false;
+        create( df, df.colIndex( colNames ) );
     }
 };
 
@@ -394,14 +378,9 @@ struct MultiColOrderedIndex : public OrderedIndexBase<false>
     using BaseType = OrderedIndexBase<false>;
     using BaseType::create;
 
-    bool create( const IDataFrame &df, const std::vector<std::string> &colNames, bool bReverseOrder = false, std::ostream *err = nullptr )
+    void create( const IDataFrame &df, const std::vector<std::string> &colNames, bool bReverseOrder = false )
     {
-        if ( auto icols = df.colIndices( colNames, err ); !icols.empty() )
-        {
-            create( df, std::move( icols ), bReverseOrder );
-            return true;
-        }
-        return false;
+        create( df, df.colIndex( colNames ), bReverseOrder );
     }
 };
 
@@ -412,7 +391,7 @@ struct OrderedIndex : public OrderedIndexBase<true>
 
     bool create( const IDataFrame &df, const std::string &colName, bool bReverse = false )
     {
-        create( df, *df.colIndex( colName ), bReverse );
+        create( df, df.colIndex( colName ), bReverse );
         return true;
     }
 };
@@ -505,14 +484,7 @@ public:
                 *err << "AddIndex failed: empty column names!.\n";
             return {};
         }
-        auto icols = m_pDataFrame->colIndices( colNames, err );
-        if ( icols.empty() )
-        {
-            if ( err )
-                *err << "AddIndex failed: " << to_string( colNames ) << ".\n";
-            return {};
-        }
-        return addIndex( indexType, std::move( icols ), indexName, err );
+        return addIndex( indexType, m_pDataFrame->colIndex( colNames ), indexName, err );
     }
 
     std::optional<iterator> addIndex( IndexType indexType,

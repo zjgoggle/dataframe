@@ -169,21 +169,12 @@ public:
         // check if another has all consistent columns that <columnName, columnType> is the same.
         for ( const auto &col : m_columnDefs )
         {
-            if ( auto icol = rhs.colIndex( col.colName ) ) // check colName
-            {
-                auto &colDef = rhs.columnDef( *icol );
-                if ( col.colTypeTag != colDef.colTypeTag ) // check colType
-                {
-                    if ( err )
-                        *err << "Failed to append: column " << col.colName << " type doesn't match " << typeName( col.colTypeTag )
-                             << " != " << typeName( colDef.colTypeTag ) << ".\n";
-                    return false;
-                }
-            }
-            else
+            auto &colDef = rhs.columnDef( rhs.colIndex( col.colName ) );
+            if ( col.colTypeTag != colDef.colTypeTag ) // check colType
             {
                 if ( err )
-                    *err << "Failed to append: rhs DataFrame doesn't have col=" << col.colName << ".\n";
+                    *err << "Failed to append: column " << col.colName << " type doesn't match " << typeName( col.colTypeTag )
+                         << " != " << typeName( colDef.colTypeTag ) << ".\n";
                 return false;
             }
         }
@@ -246,14 +237,7 @@ public:
     }
     const VarField &at( size_t irow, const std::string &col ) const override
     {
-        if ( auto icol = colIndex( col ) )
-        {
-            return m_records[irow][*icol];
-        }
-        else
-        {
-            throw std::out_of_range( col );
-        }
+        return m_records.at( irow ).at( colIndex( col ) );
     }
     const VarField &operator()( size_t irow, size_t icol ) const
     {
@@ -274,17 +258,12 @@ public:
     }
     const ColumnDef &columnDef( const std::string &colName ) const override
     {
-        if ( auto icol = colIndex( colName ) )
-        {
-            return m_columnDefs[*icol];
-        }
-        else
-            throw std::out_of_range( colName );
+        return m_columnDefs.at( colIndex( colName ) );
     }
 
     std::string &colName( size_t icol )
     {
-        return m_columnDefs[icol].colName;
+        return m_columnDefs.at( icol ).colName;
     }
     const std::string &colName( size_t icol ) const override
     {
@@ -292,11 +271,11 @@ public:
     }
 
     // return
-    std::optional<size_t> colIndex( const std::string &colName ) const override
+    size_t colIndex( const std::string &colName ) const override
     {
         if ( auto it = m_columnNames.find( colName ); it != m_columnNames.end() )
             return it->second;
-        return {};
+        throw std::out_of_range( "Failed to find DataFrame column name:" + colName );
     }
 
     void clearRecords()

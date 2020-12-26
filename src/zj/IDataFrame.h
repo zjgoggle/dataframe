@@ -830,7 +830,7 @@ public:
     virtual const VarField &at( size_t irow, size_t icol ) const = 0;
     virtual const VarField &at( size_t irow, const std::string &col ) const = 0;
 
-    virtual std::optional<size_t> colIndex( const std::string &colName ) const = 0;
+    virtual size_t colIndex( const std::string &colName ) const = 0;
     virtual const std::string &colName( size_t icol ) const = 0;
     virtual const ColumnDef &columnDef( size_t icol ) const = 0;
     virtual const ColumnDef &columnDef( const std::string &colName ) const = 0;
@@ -854,7 +854,7 @@ public:
     {
         return std::array<size_t, 2>{countRows(), countCols()};
     }
-    virtual std::vector<std::string> colNames( const std::vector<size_t> &icols ) const
+    virtual std::vector<std::string> colName( const std::vector<size_t> &icols ) const
     {
         std::vector<std::string> res;
         auto N = countCols();
@@ -866,20 +866,11 @@ public:
         }
         return res;
     }
-    virtual std::vector<size_t> colIndices( const std::vector<std::string> &colNames, std::ostream *err = nullptr ) const
+    virtual std::vector<size_t> colIndex( const std::vector<std::string> &colNames ) const
     {
         std::vector<size_t> res;
         for ( const auto &n : colNames )
-        {
-            if ( auto r = colIndex( n ) )
-                res.push_back( *r );
-            else
-            {
-                if ( err )
-                    *err << "colIndices: column doesn't exist:" << n << ".\n";
-                return {};
-            }
-        }
+            res.push_back( colIndex( n ) );
         return res;
     }
     std::vector<FieldRef> getRowRef( size_t irow ) const

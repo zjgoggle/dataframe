@@ -96,12 +96,12 @@ ADD_TEST_CASE( DataFrame_Basic )
     // MultiColOrderedIndex
     {
         MultiColOrderedIndex idxLevelScore;
-        REQUIRE( idxLevelScore.create( df, SCols{"Level", "Score"} ) );
+        idxLevelScore.create( df, SCols{"Level", "Score"} );
 
         REQUIRE_EQ( idxLevelScore[0], 2u ); // Jonathon
 
         MultiColOrderedIndex sortedBirth;
-        REQUIRE( sortedBirth.create( df, SCols{"BirthDate"} ) );
+        sortedBirth.create( df, SCols{"BirthDate"} );
         REQUIRE_EQ( sortedBirth[0], 1u );
     }
     // MultiColHashIndex
@@ -115,7 +115,7 @@ ADD_TEST_CASE( DataFrame_Basic )
     // MultiColHashMultiIndex
     {
         MultiColHashMultiIndex hidxLevel;
-        REQUIRE( hidxLevel.create( df, StrVec{"Level"} ) );
+        hidxLevel.create( df, StrVec{"Level"} );
 
         Record key{fieldval( 'A' )};
         REQUIRE_EQ( Set( hidxLevel[key] ), Set( ULongVec{0, 2} ) ); // John, Jonathon
@@ -171,6 +171,7 @@ ADD_TEST_CASE( DataFrame_Basic )
         REQUIRE( !isInNames.evalAtRow( 1 ) );
         REQUIRE( !isInNames.evalAtRow( 2 ) );
         REQUIRE( isInNames.evalAtRow( 3 ) );
+
         ConditionIsIn<false> isIn2;
     }
 }
