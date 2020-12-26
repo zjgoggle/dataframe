@@ -173,4 +173,82 @@ struct ConditionIsIn : public ICondition
     }
 };
 
+// expression
+namespace expr
+{
+    enum class OP
+    {
+        ISIN,
+        LOGIC_AND,
+        LOGIC_OR,
+        LOGIC_NOT,
+    };
+    struct Expr
+    {
+        SCols cols; // column names
+        std::variant<std::nullptr_t, CompareTag, OP> compareOrIn; // compare or IsIn
+        std::variant<std::nullptr_t, Record, std::vector<Record>> val;
+
+        // cols are inited already
+        void isIn( std::vector<Record> vals );
+    };
+
+    using ExprOrOP = std::variant<OP, Expr>;
+    using ExprStack = std::vector<ExprOrOP>;
+
+    template<class... T>
+    Expr Col( T &&... args )
+    {
+        static_assert( ( std::is_constructible_v<std::string, T> && ... ) );
+
+        SCols cols{std::forward<T>( args )...};
+        return {std::move( cols )};
+    }
+
+    // Col < val
+    template<class T>
+    Expr operator<( Expr cols, T val )
+    {
+        assert( cols.cols.size() == 1 );
+        return Expr{std::move( cols.cols ), CompareTag::LT, Record{fieldval( std::move( val ) )}};
+    }
+
+    // Cols < vals
+    template<class... Args>
+    Expr operator<( Expr cols, std::tuple<Args...> val )
+    {
+        static_assert( CompatibleFieldTypes<Args...>() );
+        assert( cols.cols.size() == sizeof...( Args ) );
+        return Expr{std::move( cols.cols ), CompareTag::LT, recordtup( val )};
+    }
+    // Col == val
+    template<class T>
+    Expr operator==( Expr cols, const T &val )
+    {
+        assert( cols.cols.size() == 1 );
+        return Expr{std::move( cols.cols ), CompareTag::EQ, Record{fieldval( val )}};
+    }
+
+    // Cols == vals
+    template<class... Args>
+    Expr operator==( Expr cols, const std::tuple<Args...> &val )
+    {
+        static_assert( CompatibleFieldTypes<Args...>() );
+        assert( cols.cols.size() == sizeof...( Args ) );
+        return Expr{std::move( cols.cols ), CompareTag::EQ, record( val )};
+    }
+
+    //---------------- is in ----------------------
+
+    void Expr::isIn( std::vector<Record> vals )
+    {
+        assert( cols.size() == vals.at( 0 ).size() );
+        compareOrIn = OP::ISIN;
+        val = std::move( vals );
+    }
+
+
+} // namespace expr
+
+
 } // namespace zj

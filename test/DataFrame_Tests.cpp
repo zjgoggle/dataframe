@@ -11,6 +11,8 @@ UNITTEST_MAIN
 using namespace zj;
 ADD_TEST_CASE( DataFrame_Basic )
 {
+    using Tup = std::tuple<std::string, int, float, char, Timestamp>;
+    using Tups = std::vector<Tup>;
     RowDataFrame df, df1;
     //    ConditionIsIn<false> isIn2;
     { // ParseTimestamp
@@ -53,8 +55,6 @@ ADD_TEST_CASE( DataFrame_Basic )
 
     //    SECTION( "from_tuple" )
     {
-        using Tup = std::tuple<std::string, int, float, char, Timestamp>;
-        using Tups = std::vector<Tup>;
         REQUIRE( df1.from_tuples( Tups{Tup{"Jonathon", 24, 23.3, 'A', mkDate( 2010, 10, 22 )}, Tup{"Jeff", 12, 43.5, 'C', mkDate( 2008, 10, 22 )}},
                                   {"Name", "Age", "Score", "Level", "BirthDate"},
                                   &std::cerr ) );
@@ -173,5 +173,10 @@ ADD_TEST_CASE( DataFrame_Basic )
         REQUIRE( isInNames.evalAtRow( 3 ) );
 
         ConditionIsIn<false> isIn2;
+    }
+    {
+        using namespace expr;
+        auto aExp = Col( "Name" ) == "John";
+        auto bExp = Col( "Age", "Level" ) < std::make_tuple( 15, 'B' );
     }
 }

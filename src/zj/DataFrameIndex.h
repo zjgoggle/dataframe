@@ -451,13 +451,13 @@ public:
         VarIndex value;
     };
 
-    using IndexMap = std::unordered_map<IndexKey, IndexValue, HashCode>;
+    using IndexMap = std::unordered_map<IndexKey, IndexValue, HashCode>; // indexCategory+Cols as key
     using iterator = IndexMap::const_iterator;
     using IndexNameMap = std::unordered_map<std::string, iterator>;
 
 protected:
     IndexMap m_indexMap;
-    IndexNameMap m_nameMap;
+    IndexNameMap m_nameMap; // <indexName, iteratorOfIndexMap>
     IDataFrame *m_pDataFrame = nullptr;
 
 public:
@@ -499,6 +499,7 @@ public:
         return {};
     }
 
+    /// Find a named index.
     std::optional<iterator> findIndex( const std::string &indexName ) const
     {
         if ( auto it = m_nameMap.find( indexName ); it != m_nameMap.end() )
@@ -514,6 +515,11 @@ public:
             m_nameMap.erase( it );
         }
         return false;
+    }
+    void clearIndex()
+    {
+        m_nameMap.clear();
+        m_indexMap.clear();
     }
 };
 } // namespace zj

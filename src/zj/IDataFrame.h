@@ -164,7 +164,10 @@ struct ColumnDef
 using ColumnDefs = std::vector<ColumnDef>;
 
 template<class UnderlyingType>
-struct FieldValue;
+struct FieldValue
+{
+    static constexpr FieldTypeTag type = FieldTypeTag::End;
+};
 
 template<class UnderlyingType>
 bool operator==( const FieldValue<UnderlyingType> &a, const FieldValue<UnderlyingType> &b )
@@ -217,6 +220,7 @@ DEFINE_FIELDVALUE( Float64Vec, std::vector<double>, VAR_LENGTH );
 DEFINE_FIELDVALUE( TimestampVec, std::vector<Timestamp>, VAR_LENGTH );
 
 
+
 /// \note the order of each field type must be consistent with the order of values in FieldTypeTag.
 using VarField = std::variant<NullField,
                               StrField,
@@ -236,6 +240,29 @@ using VarField = std::variant<NullField,
                               Float32VecField,
                               Float64VecField,
                               TimestampVecField>;
+
+
+template<class PrimitiveType>
+struct CompatibleFieldType
+{
+    static constexpr bool is_defined = FieldValue<PrimitiveType>::type != FieldTypeTag::End;
+    static constexpr bool is_other_string =
+            std::is_same_v<std::string_view, std::decay_t<PrimitiveType>> || std::is_same_v<const char *, PrimitiveType>;
+    static constexpr bool value = is_defined || is_other_string;
+    using type = std::conditional_t<is_other_string, std::string, std::decay_t<PrimitiveType>>;
+};
+
+template<class PrimitiveType>
+using CompatibleFieldType_t = typename CompatibleFieldType<PrimitiveType>::type;
+template<class PrimitiveType>
+using CompatibleFieldType_v = typename CompatibleFieldType<PrimitiveType>::value;
+
+
+template<class... Args>
+constexpr bool CompatibleFieldTypes()
+{
+    return ( CompatibleFieldType<Args>::value && ... );
+}
 
 using FieldRef = std::reference_wrapper<const VarField>;
 
@@ -362,7 +389,7 @@ VarField field( Args &&... args )
 template<class T>
 VarField fieldval( T v )
 {
-    return VarField{std::in_place_type_t<FieldValue<T>>(), FieldValue<T>{v}};
+    return VarField{std::in_place_type_t<FieldValue<T>>(), FieldValue<T>{std::move( v )}};
 }
 template<>
 inline VarField fieldval( const char *v )
@@ -389,10 +416,13 @@ inline VarField create_default_field( FieldTypeTag typeTag )
     return static_invoke_for_type( typeTag, CreateField() );
 }
 
+
+
 /// \brief Create record from tuple.
 template<size_t nth = 0, class T, class... Args>
 bool create_record( Record &rec, const std::tuple<T, Args...> &tup, std::ostream *err = nullptr, bool allowNullField = true )
 {
+    static_assert( CompatibleFieldTypes<T, Args...>() );
     VarField var = fieldval( std::get<nth>( tup ) );
     if ( var.index() == 0 && !allowNullField )
     {
@@ -406,11 +436,18 @@ bool create_record( Record &rec, const std::tuple<T, Args...> &tup, std::ostream
     else
         return true;
 }
-
 template<class... Args>
 Record record( Args &&... args )
 {
     return Record{fieldval( std::forward<Args>( args ) )...};
+}
+template<class... Args>
+Record recordtup( const std::tuple<Args...> &tup )
+{
+    static_assert( CompatibleFieldTypes<Args...>() );
+    Record rec;
+    create_record( rec, tup, nullptr );
+    return rec;
 }
 
 template<size_t nth = 0, class T, class... Args>

@@ -108,6 +108,7 @@ public:
     template<class... T>
     bool from_tuples( const std::vector<std::tuple<T...>> &tups, const std::vector<std::string> &colNames = {}, std::ostream *err = nullptr )
     {
+        static_assert( CompatibleFieldTypes<T...>(), "" );
         clear();
 
         const std::vector<std::string> *pNames = &colNames;
@@ -143,6 +144,7 @@ public:
     template<class... T>
     bool appendTupple( const std::tuple<T...> &tup, std::ostream *err = nullptr )
     {
+        static_assert( CompatibleFieldTypes<T...>(), "" );
         if ( m_columnDefs.empty() )
         {
             if ( err )
