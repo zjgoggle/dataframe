@@ -28,7 +28,7 @@ struct ICondition
     virtual ~ICondition() = default;
 };
 
-enum class CompareTag
+enum class OperatorTag
 {
     EQ, // ==
     NE, // !=
@@ -36,25 +36,88 @@ enum class CompareTag
     LE, // <=
     GT, // >
     GE, // >=
+
+    ISIN,
+    NOTIN,
+    AND, // &&
+    OR, // ||
 };
 
+inline const char *to_cstr( OperatorTag v )
+{
+    switch ( v )
+    {
+    case OperatorTag::EQ:
+        return "==";
+    case OperatorTag::NE:
+        return "!=";
+    case OperatorTag::LT:
+        return "<";
+    case OperatorTag::LE:
+        return "<=";
+    case OperatorTag::GT:
+        return ">";
+    case OperatorTag::GE:
+        return ">=";
+    case OperatorTag::ISIN:
+        return "isin";
+    case OperatorTag::NOTIN:
+        return "notin";
+    case OperatorTag::AND:
+        return "&&";
+    case OperatorTag::OR:
+        return "||";
+    default:
+        throw std::range_error( "to_cstr Invalid OperatorTag:" + std::to_string( int( v ) ) );
+        return "NotOperator";
+    }
+}
+
+inline OperatorTag logicOpposite( OperatorTag v )
+{
+    switch ( v )
+    {
+    case OperatorTag::EQ:
+        return OperatorTag::NE;
+    case OperatorTag::NE:
+        return OperatorTag::EQ;
+    case OperatorTag::LT:
+        return OperatorTag::GE;
+    case OperatorTag::LE:
+        return OperatorTag::GT;
+    case OperatorTag::GT:
+        return OperatorTag::LE;
+    case OperatorTag::GE:
+        return OperatorTag::LT;
+    case OperatorTag::ISIN:
+        return OperatorTag::NOTIN;
+    case OperatorTag::NOTIN:
+        return OperatorTag::ISIN;
+    case OperatorTag::AND:
+        return OperatorTag::OR;
+    case OperatorTag::OR:
+        return OperatorTag::AND;
+    default:
+        throw std::range_error( "logicOpposite Invalid OperatorTag:" + std::to_string( int( v ) ) );
+    }
+}
 // only < and == are invoked.
 template<class T, class U>
-bool invoke_compare( CompareTag comp, T &&a, U &&b )
+bool invoke_compare( OperatorTag comp, T &&a, U &&b )
 {
     switch ( comp )
     {
-    case CompareTag::EQ:
+    case OperatorTag::EQ:
         return a == b;
-    case CompareTag::NE:
+    case OperatorTag::NE:
         return !( a == b );
-    case CompareTag::LT:
+    case OperatorTag::LT:
         return a < b;
-    case CompareTag::LE:
+    case OperatorTag::LE:
         return !( b < a );
-    case CompareTag::GT:
+    case OperatorTag::GT:
         return b < a;
-    case CompareTag::GE:
+    case OperatorTag::GE:
         return !( a < b );
     default:
         throw std::runtime_error( "Invalid CompareTag:" + std::to_string( int( comp ) ) );
@@ -100,10 +163,10 @@ struct ConditionCompare : public ICondition
 
     const IDataFrame *m_df;
     ColIndex m_col; // column indices
-    CompareTag m_compareTag;
+    OperatorTag m_compareTag;
     RecordType m_val;
 
-    bool init( const IDataFrame *df, ColNames colnames, CompareTag compareTag, RecordType val, std::ostream *err = nullptr )
+    bool init( const IDataFrame *df, ColNames colnames, OperatorTag compareTag, RecordType val, std::ostream *err = nullptr )
     {
         m_df = df;
         m_compareTag = compareTag;
@@ -124,6 +187,10 @@ struct ConditionCompare : public ICondition
         m_val = std::move( val );
         return true;
     }
+    void setLogicNot()
+    {
+        m_compareTag = logicOpposite( m_compareTag );
+    }
     bool evalAtRow( Rowindex irow ) const override
     {
         return invoke_compare( m_compareTag, RecordRef{m_df, irow, &m_col}, m_val );
@@ -143,10 +210,12 @@ struct ConditionIsIn : public ICondition
     const IDataFrame *m_df;
     ColIndex m_col; // column indices
     std::unordered_set<ValueType, HashCode> m_val; // todo use hash delegate
+    bool m_isinOrNot; // or not in
 
-    bool init( const IDataFrame *df, ColNames colnames, std::vector<RecordType> records, std::ostream *err = nullptr )
+    bool init( const IDataFrame *df, ColNames colnames, std::vector<RecordType> records, bool isInOrNot = true, std::ostream *err = nullptr )
     {
         m_df = df;
+        m_isinOrNot = isInOrNot;
 
         if constexpr ( !bSingleCol )
         {
@@ -167,88 +236,231 @@ struct ConditionIsIn : public ICondition
             m_val.emplace( ValueType{std::move( e )} );
         return true;
     }
+    void setLogicNot()
+    {
+        m_isinOrNot = !m_isinOrNot;
+    }
     bool evalAtRow( Rowindex irow ) const override
     {
-        return m_val.count( ValueType{typename ValueType::position_type{m_df, irow, &m_col}} );
+        if ( m_isinOrNot )
+            return m_val.count( ValueType{typename ValueType::position_type{m_df, irow, &m_col}} );
+        else
+            return !m_val.count( ValueType{typename ValueType::position_type{m_df, irow, &m_col}} );
     }
 };
 
 // expression
-namespace expr
+// Expr1 && Expr2
+// Expr1 || Expr2
+// Expr1 || Expr3 && Expr4 || AndExpr
+// !Expr
+// !AddExpr
+// \note !OrExpr is not allowed.
+class Expr;
+struct ColNames
 {
-    enum class OP
+    std::vector<std::string> cols;
+
+    // cols are inited already
+    Expr isin( std::vector<Record> vals );
+    Expr isin( Record vals );
+
+    Expr notin( std::vector<Record> vals );
+    Expr notin( Record vals );
+};
+
+struct Expr
+{
+    std::vector<std::string> cols; // column names
+    OperatorTag compareOrIn; // compare, isin, notin
+    std::variant<Record, std::vector<Record>> val;
+
+    bool has_value() const
     {
-        ISIN,
-        LOGIC_AND,
-        LOGIC_OR,
-        LOGIC_NOT,
-    };
-    struct Expr
-    {
-        SCols cols; // column names
-        std::variant<std::nullptr_t, CompareTag, OP> compareOrIn; // compare or IsIn
-        std::variant<std::nullptr_t, Record, std::vector<Record>> val;
-
-        // cols are inited already
-        void isIn( std::vector<Record> vals );
-    };
-
-    using ExprOrOP = std::variant<OP, Expr>;
-    using ExprStack = std::vector<ExprOrOP>;
-
-    template<class... T>
-    Expr Col( T &&... args )
-    {
-        static_assert( ( std::is_constructible_v<std::string, T> && ... ) );
-
-        SCols cols{std::forward<T>( args )...};
-        return {std::move( cols )};
+        return !cols.empty();
     }
+};
 
-    // Col < val
-    template<class T>
-    Expr operator<( Expr cols, T val )
+inline Expr operator!( Expr &&e )
+{
+    Expr r = std::move( e );
+    r.compareOrIn = logicOpposite( r.compareOrIn );
+    return r;
+}
+struct AndExpr
+{
+    std::vector<Expr> ops;
+};
+struct OrExpr
+{
+    std::vector<AndExpr> ops;
+};
+
+// ! OrEpr is not allowed.
+inline OrExpr operator!( AndExpr &&e )
+{
+    OrExpr r;
+    for ( auto &&expr : e.ops )
     {
-        assert( cols.cols.size() == 1 );
-        return Expr{std::move( cols.cols ), CompareTag::LT, Record{fieldval( std::move( val ) )}};
+        r.ops.emplace_back( AndExpr{std::vector<Expr>{!std::move( expr )}} );
     }
+    return r;
+}
 
-    // Cols < vals
-    template<class... Args>
-    Expr operator<( Expr cols, std::tuple<Args...> val )
-    {
-        static_assert( CompatibleFieldTypes<Args...>() );
-        assert( cols.cols.size() == sizeof...( Args ) );
-        return Expr{std::move( cols.cols ), CompareTag::LT, recordtup( val )};
-    }
-    // Col == val
-    template<class T>
-    Expr operator==( Expr cols, const T &val )
-    {
-        assert( cols.cols.size() == 1 );
-        return Expr{std::move( cols.cols ), CompareTag::EQ, Record{fieldval( val )}};
-    }
+inline std::string to_string( const Expr &v )
+{
+    std::string s = to_string( v.cols, std::string( ", " ), "[]" );
+    return s + " " + to_cstr( v.compareOrIn ) + ( " " + to_string( v.val ) );
+}
+inline std::string to_string( const AndExpr &v, const char *quotes = "()" )
+{
+    return to_string( v.ops, " && ", quotes );
+}
+inline std::string to_string( const OrExpr &v, const char *quotes = "()" )
+{
+    return to_string( v.ops, " || ", quotes );
+}
 
-    // Cols == vals
-    template<class... Args>
-    Expr operator==( Expr cols, const std::tuple<Args...> &val )
-    {
-        static_assert( CompatibleFieldTypes<Args...>() );
-        assert( cols.cols.size() == sizeof...( Args ) );
-        return Expr{std::move( cols.cols ), CompareTag::EQ, record( val )};
-    }
+inline std::ostream &operator<<( std::ostream &os, const Expr &v )
+{
+    assert( v.has_value() );
+    return os << to_string( v );
+}
+inline std::ostream &operator<<( std::ostream &os, const AndExpr &v )
+{
+    assert( v.ops.size() );
+    return os << to_string( v );
+}
+inline std::ostream &operator<<( std::ostream &os, const OrExpr &v )
+{
+    assert( v.ops.size() );
+    return os << to_string( v );
+}
 
-    //---------------- is in ----------------------
+template<class... T>
+ColNames Col( T &&... args )
+{
+    static_assert( ( std::is_constructible_v<std::string, T> && ... ) );
 
-    void Expr::isIn( std::vector<Record> vals )
-    {
-        assert( cols.size() == vals.at( 0 ).size() );
-        compareOrIn = OP::ISIN;
-        val = std::move( vals );
-    }
+    SCols cols{std::forward<T>( args )...};
+    return {std::move( cols )};
+}
 
+// Col < val
+template<class T>
+Expr operator<( ColNames &&cols, T &&val )
+{
+    assert( cols.cols.size() == 1 );
+    return Expr{std::move( cols.cols ), OperatorTag::LT, Record{field( std::move( val ) )}};
+}
 
-} // namespace expr
+// Cols < vals
+template<class... Args>
+Expr operator<( ColNames &&cols, std::tuple<Args...> &&val )
+{
+    static_assert( CompatibleFieldTypes<Args...>() );
+    assert( cols.cols.size() == sizeof...( Args ) );
+    return Expr{std::move( cols.cols ), OperatorTag::LT, recordtup( val )};
+}
+// Col == val
+template<class T>
+Expr operator==( ColNames &&cols, T &&val )
+{
+    assert( cols.cols.size() == 1 );
+    return Expr{std::move( cols.cols ), OperatorTag::EQ, Record{field( val )}};
+}
 
+// Cols == vals
+template<class... Args>
+Expr operator==( ColNames &&cols, std::tuple<Args...> &&val )
+{
+    static_assert( CompatibleFieldTypes<Args...>() );
+    assert( cols.cols.size() == sizeof...( Args ) );
+    return Expr{std::move( cols.cols ), OperatorTag::EQ, record( val )};
+}
+
+//---------------- is in ----------------------
+
+Expr ColNames::isin( std::vector<Record> vals )
+{
+    assert( cols.size() && cols.size() == vals.at( 0 ).size() && "Multi-value element" );
+    if ( cols.size() != vals.at( 0 ).size() )
+        throw std::range_error( "isin Error! columns size: " + std::to_string( cols.size() ) + " != " + std::to_string( vals.at( 0 ).size() ) );
+    return {cols, OperatorTag::ISIN, std::move( vals )};
+}
+
+Expr ColNames::isin( Record vals )
+{
+    assert( cols.size() == 1 && "Multi" );
+    if ( cols.size() != 1 )
+        throw std::range_error( "isin expecting single col: " + std::to_string( cols.size() ) );
+    std::vector<Record> v;
+    for ( auto &&e : vals )
+        v.push_back( Record{std::move( e )} );
+    return {cols, OperatorTag::ISIN, std::move( v )};
+}
+Expr ColNames::notin( std::vector<Record> vals )
+{
+    auto r = isin( std::move( vals ) );
+    r.compareOrIn = OperatorTag::NOTIN;
+    return r;
+}
+Expr ColNames::notin( Record vals )
+{
+    auto r = isin( std::move( vals ) );
+    r.compareOrIn = OperatorTag::NOTIN;
+    return r;
+}
+
+//---------------- logic and ----------------------
+inline AndExpr operator&&( Expr &&a, Expr &&b )
+{
+    return AndExpr{{std::move( a ), std::move( b )}};
+}
+inline AndExpr operator&&( AndExpr &&a, Expr &&b )
+{
+    a.ops.emplace_back( std::move( b ) );
+    return a;
+}
+//---------------- logic and ----------------------
+inline OrExpr operator||( Expr &&a, Expr &&b )
+{
+    AndExpr x{{a}}, y{{b}};
+    return OrExpr{{x, y}};
+}
+inline OrExpr operator||( AndExpr &&a, Expr &&b )
+{
+    AndExpr t{{b}};
+    return OrExpr{{a, t}};
+}
+inline OrExpr operator||( AndExpr &&a, AndExpr &&b )
+{
+    return OrExpr{{a, b}};
+}
+inline OrExpr operator||( Expr &&a, AndExpr &&b )
+{
+    return AndExpr{{a}} || std::move( b );
+}
+
+inline OrExpr operator||( OrExpr &&a, OrExpr &&b )
+{
+    for ( auto &&e : b.ops )
+        a.ops.emplace_back( std::move( e ) );
+    return a;
+}
+inline OrExpr operator||( OrExpr &&a, AndExpr &&b )
+{
+    a.ops.emplace_back( std::move( b ) );
+    return a;
+}
+inline OrExpr operator||( AndExpr &&a, OrExpr &&b )
+{
+    return std::move( b ) || std::move( a );
+}
+inline OrExpr operator||( OrExpr &&a, Expr &&b )
+{
+    a.ops.emplace_back( AndExpr{{b}} );
+    return a;
+}
 
 } // namespace zj

@@ -379,25 +379,26 @@ inline const char *typeName( FieldTypeTag typeTag )
     return static_invoke_for_type( typeTag, GetFieldTypeName() );
 }
 
+
 template<class T, class... Args>
-VarField field( Args &&... args )
+VarField fieldt( Args &&... args )
 {
     return VarField{std::in_place_type_t<FieldValue<T>>(), std::forward<Args>( args )...};
 }
 
 
 template<class T>
-VarField fieldval( T v )
+VarField field( T v )
 {
     return VarField{std::in_place_type_t<FieldValue<T>>(), FieldValue<T>{std::move( v )}};
 }
 template<>
-inline VarField fieldval( const char *v )
+inline VarField field( const char *v )
 {
     return VarField{std::in_place_type_t<FieldValue<std::string>>(), FieldValue<std::string>{v}};
 }
 template<>
-inline VarField fieldval( std::string_view v )
+inline VarField field( std::string_view v )
 {
     return VarField{std::in_place_type_t<FieldValue<std::string>>(), FieldValue<std::string>{std::string( v )}};
 }
@@ -407,7 +408,7 @@ struct CreateField
     template<class T, class... Args>
     inline constexpr VarField invoke( Args &&... args ) const
     {
-        return field<T>( std::forward<Args>( args )... );
+        return fieldt<T>( std::forward<Args>( args )... );
     }
 };
 
@@ -423,7 +424,7 @@ template<size_t nth = 0, class T, class... Args>
 bool create_record( Record &rec, const std::tuple<T, Args...> &tup, std::ostream *err = nullptr, bool allowNullField = true )
 {
     static_assert( CompatibleFieldTypes<T, Args...>() );
-    VarField var = fieldval( std::get<nth>( tup ) );
+    VarField var = field( std::get<nth>( tup ) );
     if ( var.index() == 0 && !allowNullField )
     {
         if ( err )
@@ -439,7 +440,7 @@ bool create_record( Record &rec, const std::tuple<T, Args...> &tup, std::ostream
 template<class... Args>
 Record record( Args &&... args )
 {
-    return Record{fieldval( std::forward<Args>( args ) )...};
+    return Record{field( std::forward<Args>( args ) )...};
 }
 template<class... Args>
 Record recordtup( const std::tuple<Args...> &tup )
@@ -448,6 +449,13 @@ Record recordtup( const std::tuple<Args...> &tup )
     Record rec;
     create_record( rec, tup, nullptr );
     return rec;
+}
+
+template<class... Args>
+std::tuple<Args...> mktuple( Args &&... args )
+{
+    static_assert( CompatibleFieldTypes<Args...>() );
+    return std::make_tuple( std::forward<Args>( args )... );
 }
 
 template<size_t nth = 0, class T, class... Args>
@@ -510,15 +518,16 @@ template<>
 inline std::string to_string( const char &s )
 {
     std::string res;
+    res += '\'';
     res += s;
+    res += '\'';
     return res;
 }
 template<>
 inline std::string to_string( const std::string &s )
 {
-    return s;
+    return "\"" + s + "\"";
 }
-
 
 template<>
 inline std::string to_string( const Timestamp &tsSinceEpoch )
@@ -527,7 +536,7 @@ inline std::string to_string( const Timestamp &tsSinceEpoch )
 }
 
 template<class Elem>
-std::string to_string( const std::vector<Elem> &vec, char sep = ',', const char *quotes = "[]" )
+std::string to_string( const std::vector<Elem> &vec, const std::string &sep = ", ", const char *quotes = "[]" )
 {
     std::string s;
     if ( quotes && quotes[0] )
@@ -536,14 +545,18 @@ std::string to_string( const std::vector<Elem> &vec, char sep = ',', const char 
     int i = 0;
     for ( const auto &el : vec )
     {
-        if ( i++ != 0 )
-            s += ", ";
+        if ( !sep.empty() )
+        {
+            if ( i++ != 0 )
+                s += sep;
+        }
         s += to_string( el );
     }
     if ( quotes && quotes[1] )
         s += quotes[1];
     return s;
 }
+
 template<class T>
 std::string to_string( const std::unordered_set<T> &v, char sep = ',', const char *quotes = "{}" )
 {
@@ -561,32 +574,71 @@ std::string to_string( const std::unordered_set<T> &v, char sep = ',', const cha
         s += quotes[1];
     return s;
 }
-template<class T>
-std::ostream &operator<<( std::ostream &os, const std::unordered_set<T> &s )
+template<class... T, size_t nth = 0>
+std::string to_string( const std::tuple<T...> &tup, std::string_view sep = ", ", const char *quotes = "()" )
 {
-    os << to_string( s );
-    return os;
+    std::string s;
+    if constexpr ( nth == 0 )
+    {
+        if ( quotes && quotes[0] )
+            s += quotes[0];
+    }
+    else
+    {
+        if ( !sep.empty() )
+            s += sep;
+    }
+
+    s += to_string( std::get<nth>( tup ) );
+
+    if constexpr ( nth == std::tuple_size_v<std::tuple<T...>> )
+    {
+        if ( quotes && quotes[1] )
+            s += quotes[1];
+    }
+    return s;
 }
+
 
 template<class T>
 std::string to_string( const FieldValue<T> &val )
 {
-    if constexpr ( std::is_same_v<FieldValue<T>, StrField> )
-        return val.value;
-    else if constexpr ( std::is_same_v<FieldValue<T>, NullField> )
+    if constexpr ( std::is_same_v<FieldValue<T>, NullField> )
         return global().nullstr;
     else
         return to_string( val.value );
 }
-template<>
-inline std::string to_string( const VarField &var )
+
+template<class... T>
+inline std::string to_string( const std::variant<T...> &var )
 {
     std::string res;
     std::visit( [&]( const auto &fieldval ) { res = to_string( fieldval ); }, var );
     return res;
 }
 
-inline std::ostream &operator<<( std::ostream &os, const VarField &var )
+template<class... T>
+std::ostream &operator<<( std::ostream &os, const std::unordered_set<T...> &s )
+{
+    os << to_string( s );
+    return os;
+}
+template<class... T>
+std::ostream &operator<<( std::ostream &os, const std::vector<T...> &s )
+{
+    os << to_string( s );
+    return os;
+}
+
+template<class A, class... T>
+std::ostream &operator<<( std::ostream &os, const std::variant<A, T...> &var )
+{
+    os << to_string( var );
+    return os;
+}
+
+template<class A, class... T>
+inline std::ostream &operator<<( std::ostream &os, const std::tuple<A, T...> &var )
 {
     os << to_string( var );
     return os;
