@@ -22,12 +22,6 @@
 namespace zj
 {
 
-struct ICondition
-{
-    virtual bool evalAtRow( Rowindex irow ) const = 0;
-    virtual ~ICondition() = default;
-};
-
 enum class OperatorTag
 {
     EQ, // ==
@@ -123,6 +117,17 @@ bool invoke_compare( OperatorTag comp, T &&a, U &&b )
         throw std::runtime_error( "Invalid CompareTag:" + std::to_string( int( comp ) ) );
     }
 }
+
+
+struct ICondition
+{
+    virtual bool evalAtRow( Rowindex irow ) const = 0;
+    virtual const std::vector<size_t> &getColIndices() const = 0;
+    virtual OperatorTag getOperator() const = 0;
+    virtual ~ICondition() = default;
+};
+using IConditionPtr = std::unique_ptr<ICondition>;
+
 inline bool checkFieldCompatible( const IDataFrame *df, size_t icol, const VarField &field, std::ostream *err )
 {
     const ColumnDef &colDef = df->columnDef( icol );
@@ -153,9 +158,9 @@ inline bool checkFieldCompatible( const IDataFrame *df, const std::vector<std::s
     return true;
 }
 
-template<bool bSingleCol>
 struct ConditionCompare : public ICondition
 {
+    static constexpr bool bSingleCol = false;
     using ColIndex = std::conditional_t<bSingleCol, size_t, std::vector<std::size_t>>;
     using RecordType = std::conditional_t<bSingleCol, VarField, Record>;
     using RecordRef = RecordOrFieldRef<bSingleCol>;
@@ -191,15 +196,23 @@ struct ConditionCompare : public ICondition
     {
         m_compareTag = logicOpposite( m_compareTag );
     }
+    OperatorTag getOperator() const override
+    {
+        return m_compareTag;
+    }
+    const std::vector<size_t> &getColIndices() const override
+    {
+        return m_col;
+    }
     bool evalAtRow( Rowindex irow ) const override
     {
         return invoke_compare( m_compareTag, RecordRef{m_df, irow, &m_col}, m_val );
     }
 };
 
-template<bool bSingleCol>
 struct ConditionIsIn : public ICondition
 {
+    static constexpr bool bSingleCol = false;
     using ColIndex = std::conditional_t<bSingleCol, size_t, std::vector<std::size_t>>;
     using RecordType = std::conditional_t<bSingleCol, VarField, Record>;
     using RecordRef = RecordOrFieldRef<bSingleCol>;
@@ -209,10 +222,10 @@ struct ConditionIsIn : public ICondition
 
     const IDataFrame *m_df;
     ColIndex m_col; // column indices
-    std::unordered_set<ValueType, HashCode> m_val; // todo use hash delegate
+    std::unordered_set<ValueType, HashCode> m_val; // hash delegate, which is RecordType (Record)
     bool m_isinOrNot; // or not in
 
-    bool init( const IDataFrame *df, ColNames colnames, std::vector<RecordType> records, bool isInOrNot = true, std::ostream *err = nullptr )
+    bool init( const IDataFrame *df, ColNames colnames, std::vector<Record> records, bool isInOrNot = true, std::ostream *err = nullptr )
     {
         m_df = df;
         m_isinOrNot = isInOrNot;
@@ -240,6 +253,15 @@ struct ConditionIsIn : public ICondition
     {
         m_isinOrNot = !m_isinOrNot;
     }
+    OperatorTag getOperator() const override
+    {
+        return m_isinOrNot ? OperatorTag::ISIN : OperatorTag::NOTIN;
+    }
+    const std::vector<size_t> &getColIndices() const override
+    {
+        return m_col;
+    }
+
     bool evalAtRow( Rowindex irow ) const override
     {
         if ( m_isinOrNot )
@@ -273,11 +295,33 @@ struct Expr
 {
     std::vector<std::string> cols; // column names
     OperatorTag compareOrIn; // compare, isin, notin
-    std::variant<Record, std::vector<Record>> val;
+    std::variant<Record, std::vector<Record>> val; // it's Record for Compare, vector<Record> for isin/notin
 
     bool has_value() const
     {
         return !cols.empty();
+    }
+    IConditionPtr toCondition( const IDataFrame &df, std::ostream *err = nullptr ) const
+    {
+        if ( compareOrIn == OperatorTag::ISIN || compareOrIn == OperatorTag::NOTIN )
+        {
+            assert( val.index() == 1 );
+            assert( cols.size() != 0 );
+            assert( cols.size() == std::get<1>( val ).at( 0 ).size() );
+            auto condIsin = new ConditionIsIn();
+            const std::vector<Record> &v = std::get<1>( val );
+            if ( condIsin->init( &df, cols, v, compareOrIn == OperatorTag::ISIN, err ) )
+                return IConditionPtr{condIsin};
+        }
+        else
+        {
+            assert( val.index() == 0 );
+            const Record &v = std::get<0>( val );
+            auto condCompare = new ConditionCompare();
+            if ( condCompare->init( &df, cols, compareOrIn, v, err ) )
+                return IConditionPtr{condCompare};
+        }
+        return {};
     }
 };
 
@@ -290,10 +334,25 @@ inline Expr operator!( Expr &&e )
 struct AndExpr
 {
     std::vector<Expr> ops;
+
+    std::vector<IConditionPtr> toCondition( const IDataFrame &df, std::ostream *err = nullptr ) const
+    {
+        std::vector<IConditionPtr> andConditions;
+        for ( const auto &e : ops )
+            andConditions.emplace_back( e.toCondition( df, err ) );
+        return andConditions;
+    }
 };
 struct OrExpr
 {
     std::vector<AndExpr> ops;
+    std::vector<std::vector<IConditionPtr>> toCondition( const IDataFrame &df, std::ostream *err = nullptr ) const
+    {
+        std::vector<std::vector<IConditionPtr>> orConditions;
+        for ( const auto &e : ops )
+            orConditions.emplace_back( e.toCondition( df, err ) );
+        return orConditions;
+    }
 };
 
 // ! OrEpr is not allowed.
@@ -301,9 +360,7 @@ inline OrExpr operator!( AndExpr &&e )
 {
     OrExpr r;
     for ( auto &&expr : e.ops )
-    {
         r.ops.emplace_back( AndExpr{std::vector<Expr>{!std::move( expr )}} );
-    }
     return r;
 }
 
@@ -367,7 +424,7 @@ template<class T>
 Expr operator==( ColNames &&cols, T &&val )
 {
     assert( cols.cols.size() == 1 );
-    return Expr{std::move( cols.cols ), OperatorTag::EQ, Record{field( val )}};
+    return Expr{std::move( cols.cols ), OperatorTag::EQ, {Record{field( val )}}};
 }
 
 // Cols == vals
@@ -376,12 +433,30 @@ Expr operator==( ColNames &&cols, std::tuple<Args...> &&val )
 {
     static_assert( CompatibleFieldTypes<Args...>() );
     assert( cols.cols.size() == sizeof...( Args ) );
-    return Expr{std::move( cols.cols ), OperatorTag::EQ, record( val )};
+    return Expr{std::move( cols.cols ), OperatorTag::EQ, recordtup( val )};
 }
+
+// Col != val
+template<class T>
+Expr operator!=( ColNames &&cols, T &&val )
+{
+    assert( cols.cols.size() == 1 );
+    return Expr{std::move( cols.cols ), OperatorTag::NE, {Record{field( val )}}};
+}
+
+// Cols != vals
+template<class... Args>
+Expr operator!=( ColNames &&cols, std::tuple<Args...> &&val )
+{
+    static_assert( CompatibleFieldTypes<Args...>() );
+    assert( cols.cols.size() == sizeof...( Args ) );
+    return Expr{std::move( cols.cols ), OperatorTag::NE, recordtup( val )};
+}
+
 
 //---------------- is in ----------------------
 
-Expr ColNames::isin( std::vector<Record> vals )
+inline Expr ColNames::isin( std::vector<Record> vals )
 {
     assert( cols.size() && cols.size() == vals.at( 0 ).size() && "Multi-value element" );
     if ( cols.size() != vals.at( 0 ).size() )
@@ -389,7 +464,7 @@ Expr ColNames::isin( std::vector<Record> vals )
     return {cols, OperatorTag::ISIN, std::move( vals )};
 }
 
-Expr ColNames::isin( Record vals )
+inline Expr ColNames::isin( Record vals )
 {
     assert( cols.size() == 1 && "Multi" );
     if ( cols.size() != 1 )
@@ -399,13 +474,13 @@ Expr ColNames::isin( Record vals )
         v.push_back( Record{std::move( e )} );
     return {cols, OperatorTag::ISIN, std::move( v )};
 }
-Expr ColNames::notin( std::vector<Record> vals )
+inline Expr ColNames::notin( std::vector<Record> vals )
 {
     auto r = isin( std::move( vals ) );
     r.compareOrIn = OperatorTag::NOTIN;
     return r;
 }
-Expr ColNames::notin( Record vals )
+inline Expr ColNames::notin( Record vals )
 {
     auto r = isin( std::move( vals ) );
     r.compareOrIn = OperatorTag::NOTIN;

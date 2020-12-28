@@ -219,6 +219,8 @@ protected:
     }
 };
 
+using DataFrameViewPtr = std::shared_ptr<DataFrameView>;
+
 // todo: SparseDataFrameView
 
 } // namespace zj

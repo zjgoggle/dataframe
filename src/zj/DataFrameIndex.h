@@ -18,6 +18,9 @@
 #pragma once
 #include <numeric>
 #include <zj/IDataFrame.h>
+#include <zj/DataFrameView.h>
+#include <zj/RowDataFrame.h>
+#include <zj/Condition.h>
 
 namespace zj
 {
@@ -37,7 +40,6 @@ struct HashIndexBase // MultiColHashIndex
     using iterator = typename IndexSet::const_iterator;
     using RecordType = typename FieldHashDelegateT::value_type;
 
-protected:
     IndexSet m_indices;
 
 public:
@@ -58,10 +60,46 @@ public:
         return m_indices.size();
     }
 };
-
+template<class FieldHashDelegateT>
+std::string to_string( const HashIndexBase<FieldHashDelegateT> &val )
+{
+    return to_string( val.m_indices );
+}
 struct MultiColHashIndex : public HashIndexBase<MultiColFieldsHashDelegate>
 {
     ICols m_cols;
+
+    MultiColHashIndex() = default;
+    MultiColHashIndex( const MultiColHashIndex &a ) : m_cols( a.m_cols )
+    {
+        m_indices = a.m_indices;
+        for ( const MultiColFieldsHashDelegate &e : m_indices )
+        {
+            assert( e.m_data.index() == 0 );
+            std::get<0>( const_cast<MultiColFieldsHashDelegate &>( e ).m_data ).icols = &m_cols;
+        }
+    }
+    MultiColHashIndex( MultiColHashIndex &&a ) : m_cols( a.m_cols )
+    {
+        m_indices = std::move( a.m_indices );
+        for ( const MultiColFieldsHashDelegate &e : m_indices )
+        {
+            assert( e.m_data.index() == 0 );
+            std::get<0>( const_cast<MultiColFieldsHashDelegate &>( e ).m_data ).icols = &m_cols;
+        }
+    }
+    MultiColHashIndex &operator=( const MultiColHashIndex &a )
+    {
+        this->~MultiColHashIndex();
+        new ( this ) MultiColHashIndex( a );
+        return *this;
+    }
+    MultiColHashIndex &operator=( MultiColHashIndex &&a )
+    {
+        this->~MultiColHashIndex();
+        new ( this ) MultiColHashIndex( std::move( a ) );
+        return *this;
+    }
 
     // icol will not be verified.
     // return false if there are duplicate values
@@ -91,11 +129,47 @@ struct MultiColHashIndex : public HashIndexBase<MultiColFieldsHashDelegate>
         return false;
     }
 };
-
+inline std::string to_string( const MultiColHashIndex &val )
+{
+    return to_string( val.m_indices );
+}
 // Positions are saved in Index.
 struct HashIndex : public HashIndexBase<FieldHashDelegate>
 {
     size_t m_cols;
+
+    HashIndex() = default;
+    HashIndex( const HashIndex &a ) : m_cols( a.m_cols )
+    {
+        m_indices = a.m_indices;
+        for ( const FieldHashDelegate &e : m_indices )
+        {
+            assert( e.m_data.index() == 0 );
+            std::get<0>( const_cast<FieldHashDelegate &>( e ).m_data ).icols = &m_cols;
+        }
+    }
+    HashIndex( HashIndex &&a ) : m_cols( a.m_cols )
+    {
+        m_indices = std::move( a.m_indices );
+        for ( const FieldHashDelegate &e : m_indices )
+        {
+            assert( e.m_data.index() == 0 );
+            std::get<0>( const_cast<FieldHashDelegate &>( e ).m_data ).icols = &m_cols;
+        }
+    }
+    HashIndex &operator=( const HashIndex &a )
+    {
+        this->~HashIndex();
+        new ( this ) HashIndex( a );
+        return *this;
+    }
+    HashIndex &operator=( HashIndex &&a )
+    {
+        this->~HashIndex();
+        new ( this ) HashIndex( std::move( a ) );
+        return *this;
+    }
+
     // icol will not be verified.
     // return false if there are duplicate values
     bool create( const IDataFrame &df, size_t icol, std::ostream *err = nullptr )
@@ -134,7 +208,6 @@ struct HashMultiIndexBase
     using iterator = typename IndexMap::const_iterator;
     using RecordType = typename FieldHashDelegateT::value_type;
 
-protected:
     IndexMap m_indices;
     // if true, each key has multi values; otherwise, each key has single value. it's determined when index is created.
     bool m_isMultiValue = false;
@@ -146,7 +219,7 @@ public:
             return &it->second;
         return nullptr;
     }
-    std::vector<size_t> operator[]( const RecordType &key ) const
+    const std::vector<size_t> &operator[]( const RecordType &key ) const
     {
         if ( auto v = at( key ) )
             return *v;
@@ -161,10 +234,47 @@ public:
         return m_isMultiValue;
     }
 };
-
+template<class FieldHashDelegateT>
+std::string to_string( const HashMultiIndexBase<FieldHashDelegateT> &val )
+{
+    return to_string( val.m_indices );
+}
 struct HashMultiIndex : public HashMultiIndexBase<FieldHashDelegate>
 {
     size_t m_cols;
+
+    HashMultiIndex() = default;
+    HashMultiIndex( const HashMultiIndex &a ) : m_cols( a.m_cols )
+    {
+        m_indices = a.m_indices;
+        for ( const auto &e : m_indices )
+        {
+            assert( e.first.m_data.index() == 0 );
+            std::get<0>( const_cast<FieldHashDelegate &>( e.first ).m_data ).icols = &m_cols;
+        }
+    }
+    HashMultiIndex( HashMultiIndex &&a ) : m_cols( a.m_cols )
+    {
+        m_indices = std::move( a.m_indices );
+        for ( const auto &e : m_indices )
+        {
+            assert( e.first.m_data.index() == 0 );
+            std::get<0>( const_cast<FieldHashDelegate &>( e.first ).m_data ).icols = &m_cols;
+        }
+    }
+    HashMultiIndex &operator=( const HashMultiIndex &a )
+    {
+        this->~HashMultiIndex();
+        new ( this ) HashMultiIndex( a );
+        return *this;
+    }
+    HashMultiIndex &operator=( HashMultiIndex &&a )
+    {
+        this->~HashMultiIndex();
+        new ( this ) HashMultiIndex( std::move( a ) );
+        return *this;
+    }
+
     // icol will not be verified.
     void create( const IDataFrame &df, size_t icol )
     {
@@ -192,6 +302,39 @@ struct MultiColHashMultiIndex : public HashMultiIndexBase<MultiColFieldsHashDele
 {
     ICols m_cols;
 
+
+    MultiColHashMultiIndex() = default;
+    MultiColHashMultiIndex( const MultiColHashMultiIndex &a ) : m_cols( a.m_cols )
+    {
+        m_indices = a.m_indices;
+        for ( const auto &e : m_indices )
+        {
+            assert( e.first.m_data.index() == 0 );
+            std::get<0>( const_cast<MultiColFieldsHashDelegate &>( e.first ).m_data ).icols = &m_cols;
+        }
+    }
+    MultiColHashMultiIndex( MultiColHashMultiIndex &&a ) : m_cols( a.m_cols )
+    {
+        m_indices = std::move( a.m_indices );
+        for ( const auto &e : m_indices )
+        {
+            assert( e.first.m_data.index() == 0 );
+            std::get<0>( const_cast<MultiColFieldsHashDelegate &>( e.first ).m_data ).icols = &m_cols;
+        }
+    }
+    MultiColHashMultiIndex &operator=( const MultiColHashMultiIndex &a )
+    {
+        this->~MultiColHashMultiIndex();
+        new ( this ) MultiColHashMultiIndex( a );
+        return *this;
+    }
+    MultiColHashMultiIndex &operator=( MultiColHashMultiIndex &&a )
+    {
+        this->~MultiColHashMultiIndex();
+        new ( this ) MultiColHashMultiIndex( std::move( a ) );
+        return *this;
+    }
+
     // icol will not be verified.
     void create( const IDataFrame &df, std::vector<size_t> icols )
     {
@@ -211,6 +354,12 @@ struct MultiColHashMultiIndex : public HashMultiIndexBase<MultiColFieldsHashDele
         create( df, df.colIndex( colNames ) );
     }
 };
+
+inline std::string to_string( const MultiColHashMultiIndex &val )
+{
+    return to_string( val.m_indices );
+}
+
 
 ///////////////////////////////////////////////////////////////////////////
 /// OrderedIndex
@@ -406,7 +555,7 @@ enum class IndexCategory
     HashCat, // MultiColHashMultiIndex // SingleValue or MultiValue
 };
 template<>
-std::string to_string( const IndexCategory &v )
+inline std::string to_string( const IndexCategory &v )
 {
     if ( v == IndexCategory::OrderedCat )
         return "OrderedIndex";
@@ -441,7 +590,7 @@ struct hash_code<IndexKey>
 
 // df.where( Col("Age") > 10 && isin("Level", Set('A', 'B'))  )
 // df.where( Col("A
-class IndexManager
+class DataFrameWithIndex
 {
 public:
     using VarIndex = std::variant<MultiColOrderedIndex, MultiColHashMultiIndex>;
@@ -458,11 +607,27 @@ public:
 protected:
     IndexMap m_indexMap;
     IndexNameMap m_nameMap; // <indexName, iteratorOfIndexMap>
-    IDataFrame *m_pDataFrame = nullptr;
+    IDataFramePtr m_pDataFrame = nullptr;
 
 public:
-    IndexManager( IDataFrame *pDataFrame ) : m_pDataFrame( pDataFrame )
+    DataFrameWithIndex( IDataFramePtr pdf ) : m_pDataFrame( pdf )
     {
+    }
+
+    void create( const std::vector<std::vector<std::string>> &rows, const ColumnDefs &columnDefs )
+    {
+        m_pDataFrame.reset( new RowDataFrame( rows, columnDefs ) );
+    }
+
+    template<class... T>
+    void create( const std::vector<std::tuple<T...>> &tups, const std::vector<std::string> &colNames )
+    {
+        m_pDataFrame.reset( new RowDataFrame( tups, colNames ) );
+    }
+
+    size_t size() const
+    {
+        return m_pDataFrame->size();
     }
 
     /// \param indexName: optional, if it's non-empty, save it as named Index which can be removed.
@@ -492,21 +657,6 @@ public:
                                       const std::string &indexName = "",
                                       std::ostream *err = nullptr );
 
-    std::optional<iterator> findIndex( IndexCategory cat, const std::vector<std::size_t> &icols ) const
-    {
-        if ( auto it = m_indexMap.find( IndexKey{cat, icols} ); it != m_indexMap.end() )
-            return it;
-        return {};
-    }
-
-    /// Find a named index.
-    std::optional<iterator> findIndex( const std::string &indexName ) const
-    {
-        if ( auto it = m_nameMap.find( indexName ); it != m_nameMap.end() )
-            return it->second;
-        return {};
-    }
-
     bool removeIndex( const std::string &indexName )
     {
         if ( auto it = m_nameMap.find( indexName ); it != m_nameMap.end() )
@@ -521,5 +671,97 @@ public:
         m_nameMap.clear();
         m_indexMap.clear();
     }
+
+    //------------- Evaluate Expressions -----------------------
+
+    DataFrameView select( Expr expr )
+    {
+        return select( std::vector<size_t>{}, std::move( expr ) );
+    }
+    DataFrameView select( const std::vector<std::string> &colnames, Expr expr )
+    {
+        return select( m_pDataFrame->colIndex( colnames ), std::move( expr ) );
+    }
+
+protected:
+    DataFrameView select( std::vector<Rowindex> irows, std::vector<size_t> icols );
+    DataFrameView select_rows( std::vector<Rowindex> irows );
+    DataFrameView select_cols( std::vector<Rowindex> icols );
+
+    /// \param colindices column indices to select. Select all columns if it's empty.
+    /// throw runtime_error if expr is malformed, out_of_range if any col index is out of range.
+    DataFrameView select( std::vector<size_t> colindices, Expr expr )
+    {
+        auto irows = findRows( std::move( expr ) );
+        return colindices.empty() ? select_rows( std::move( irows ) ) : select( std::move( irows ), std::move( colindices ) );
+    }
+
+    std::optional<iterator> findIndex( IndexCategory cat, const std::vector<std::size_t> &icols ) const
+    {
+        if ( auto it = m_indexMap.find( IndexKey{cat, icols} ); it != m_indexMap.end() )
+            return it;
+        return {};
+    }
+    std::pair<const MultiColOrderedIndex *, const MultiColHashMultiIndex *> findIndex( const std::vector<std::size_t> &icols ) const
+    {
+        const MultiColOrderedIndex *pOrderIndex = nullptr;
+        const MultiColHashMultiIndex *pHashIndex = nullptr;
+
+        if ( auto pIt = findIndex( IndexCategory::OrderedCat, icols ) )
+        {
+            assert( ( *pIt )->second.value.index() == 0 );
+            pOrderIndex = &std::get<0>( ( *pIt )->second.value );
+        }
+        if ( auto pIt = findIndex( IndexCategory::HashCat, icols ) )
+        {
+            assert( ( *pIt )->second.value.index() == 1 );
+            pHashIndex = &std::get<1>( ( *pIt )->second.value );
+        }
+        return {pOrderIndex, pHashIndex};
+    }
+
+    /// Find a named index.
+    std::optional<iterator> findIndex( const std::string &indexName ) const
+    {
+        if ( auto it = m_nameMap.find( indexName ); it != m_nameMap.end() )
+            return it->second;
+        return {};
+    }
+
+    std::vector<Rowindex> findRows( Expr expr ) const;
+
+    std::vector<Rowindex> getRowsNotInSorted( const std::vector<Rowindex> &excludeSortedRows ) const
+    {
+        size_t N = m_pDataFrame->size();
+        assert( excludeSortedRows.empty() || excludeSortedRows.back() < N );
+        std::vector<Rowindex> res;
+        res.resize( m_pDataFrame->size() - excludeSortedRows.size() );
+        size_t pos = 0, startval = 0;
+        for ( auto e : excludeSortedRows )
+        {
+            auto n = e - startval; // number of values to populate.
+            std::iota( &res[pos], &res[pos + n], startval );
+            pos += n;
+            startval = e + 1;
+        }
+        std::iota( &res[pos], &res[pos + ( N - startval )], startval );
+        return res;
+    }
+    std::vector<Rowindex> getRowsNotInSet( const std::unordered_set<Rowindex> &excludeRows ) const
+    {
+        std::vector<Rowindex> res;
+        res.reserve( m_pDataFrame->size() - excludeRows.size() );
+        for ( size_t i = 0, N = m_pDataFrame->size(); i < N; ++i )
+            if ( !excludeRows.count( i ) )
+                res.push_back( i );
+        return res;
+    }
+
+    friend std::ostream &operator<<( std::ostream &os, const DataFrameWithIndex &df );
 };
+inline std::ostream &operator<<( std::ostream &os, const DataFrameWithIndex &df )
+{
+    os << *df.m_pDataFrame;
+    return os;
+}
 } // namespace zj

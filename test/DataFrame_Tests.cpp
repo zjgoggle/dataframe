@@ -107,6 +107,7 @@ ADD_TEST_CASE( DataFrame_Basic )
     {
         MultiColHashIndex hidxLevelAge;
         REQUIRE( hidxLevelAge.create( df, SCols{"Level", "Age"}, &std::cerr ) );
+        std::cout << "--- hidxLevelAge: " << to_string( hidxLevelAge ) << std::endl;
 
         Record key{field( 'A' ), field( 24 )};
         REQUIRE_EQ( hidxLevelAge[key], 2u ); // Jonathon
@@ -116,8 +117,13 @@ ADD_TEST_CASE( DataFrame_Basic )
         MultiColHashMultiIndex hidxLevel;
         hidxLevel.create( df, StrVec{"Level"} );
 
-        Record key{field( 'A' )};
-        REQUIRE_EQ( Set( hidxLevel[key] ), Set( ULongVec{0, 2} ) ); // John, Jonathon
+        REQUIRE_EQ( Set( hidxLevel[record( 'A' )] ), Set( ULongVec{0, 2} ) ); // John, Jonathon
+
+        MultiColHashMultiIndex hidxName;
+        hidxName.create( df, StrVec{"Name"} );
+        std::cout << "--- hidxName: " << to_string( hidxName ) << std::endl;
+
+        REQUIRE_EQ( Set( hidxName[record( "John" )] ), Set( ULongVec{0} ) ); // John, Jonathon
     }
     // DataFrameView
     {
@@ -152,26 +158,24 @@ ADD_TEST_CASE( DataFrame_Basic )
     }
     // Condition
     {
-        ConditionCompare<true> nameEQ;
-        REQUIRE( nameEQ.init( &df, "Name", OperatorTag::EQ, field( "Jeff" ), &std::cerr ) );
+        ConditionCompare nameEQ;
+        REQUIRE( nameEQ.init( &df, {"Name"}, OperatorTag::EQ, record( "Jeff" ), &std::cerr ) );
         REQUIRE( !nameEQ.evalAtRow( 0 ) );
         REQUIRE( nameEQ.evalAtRow( 3 ) );
 
-        ConditionCompare<false> ageLevelGE;
+        ConditionCompare ageLevelGE;
         REQUIRE( ageLevelGE.init( &df, {"Level", "Age"}, OperatorTag::GE, record( 'B', 18 ), &std::cerr ) );
         REQUIRE( !ageLevelGE.evalAtRow( 0 ) );
         REQUIRE( ageLevelGE.evalAtRow( 1 ) );
         REQUIRE( !ageLevelGE.evalAtRow( 2 ) );
         REQUIRE( ageLevelGE.evalAtRow( 3 ) );
 
-        ConditionIsIn<true> isInNames;
-        REQUIRE( isInNames.init( &df, "Name", {field( "John" ), field( "Jeff" )}, &std::cerr ) );
+        ConditionIsIn isInNames;
+        REQUIRE( isInNames.init( &df, {"Name"}, {record( "John" ), record( "Jeff" )}, true, &std::cerr ) );
         REQUIRE( isInNames.evalAtRow( 0 ) );
         REQUIRE( !isInNames.evalAtRow( 1 ) );
         REQUIRE( !isInNames.evalAtRow( 2 ) );
         REQUIRE( isInNames.evalAtRow( 3 ) );
-
-        ConditionIsIn<false> isIn2;
     }
     // Logic Expression
     {
@@ -193,5 +197,27 @@ ADD_TEST_CASE( DataFrame_Basic )
         OrExpr orExpr = !( Col( "Name" ) == "John" && Col( "Age", "Level" ) < mktuple( 15, 'B' ) ) || Col( "Score" ) < 10;
         REQUIRE_EQ( orExpr.ops.size(), 3u );
         std::cout << "OR     " << orExpr << std::endl;
+    }
+    // HashIndex + isin/eq/notin/ne
+    {
+        DataFrameWithIndex dfidx( IDataFramePtr( df.deepCopy() ) ); // datafram with index
+        dfidx.addIndex( IndexType::HashIndex, {"Name"}, "NameHash" );
+        std::cout << "--- DataFrameWithIndex ---\n";
+        std::cout << dfidx << std::endl;
+
+        auto viewIsin = dfidx.select( Col( "Name" ).isin( record( "John", "Jeff" ) ) ); // ISIN
+        REQUIRE_EQ( viewIsin.size(), 2u );
+        std::cout << "------- view of  name isin [John, Jeff] -----\n" << viewIsin << std::endl;
+
+        auto viewEq = dfidx.select( {"Name", "Age", "Level"}, Col( "Name" ) == "Tom" ); // EQ
+        REQUIRE_EQ( viewEq.size(), 1u );
+        std::cout << "------- view of  name == Tom -----\n" << viewEq << std::endl;
+
+        auto viewNe = dfidx.select( {"Name", "Age", "Level"}, Col( "Name" ) != "Tom" ); // NE
+        REQUIRE_EQ( viewNe.size(), dfidx.size() - 1u );
+        std::cout << "------- view of  name != Tom -----\n" << viewNe << std::endl;
+    }
+    // OrderedIdex +
+    {
     }
 }

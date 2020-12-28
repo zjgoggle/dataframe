@@ -30,6 +30,7 @@
 #include <cstring>
 #include <tuple>
 #include <functional>
+#include <memory>
 
 #include <zj/DateTime.h>
 
@@ -535,30 +536,36 @@ inline std::string to_string( const Timestamp &tsSinceEpoch )
     return tsSinceEpoch.to_string();
 }
 
-template<class Elem>
-std::string to_string( const std::vector<Elem> &vec, const std::string &sep = ", ", const char *quotes = "[]" )
+// Vec require size(), operator[]
+template<class Vec>
+std::string to_string_vec( const Vec &vec, const std::string &sep = ", ", const char *quotes = "[]" )
 {
     std::string s;
     if ( quotes && quotes[0] )
         s += quotes[0];
 
-    int i = 0;
-    for ( const auto &el : vec )
+    for ( size_t i = 0, N = vec.size(); i < N; ++i )
     {
         if ( !sep.empty() )
         {
-            if ( i++ != 0 )
+            if ( i != 0 )
                 s += sep;
         }
-        s += to_string( el );
+        s += to_string( vec[i] );
     }
     if ( quotes && quotes[1] )
         s += quotes[1];
     return s;
 }
 
-template<class T>
-std::string to_string( const std::unordered_set<T> &v, char sep = ',', const char *quotes = "{}" )
+template<class... T>
+std::string to_string( const std::vector<T...> &vec, const std::string &sep = ", ", const char *quotes = "[]" )
+{
+    return to_string_vec( vec, sep, quotes );
+}
+
+template<class Set>
+std::string to_string_set( const Set &v, const std::string &sep = ", ", const char *quotes = "{}" )
 {
     std::string s;
     if ( quotes && quotes[0] )
@@ -573,6 +580,33 @@ std::string to_string( const std::unordered_set<T> &v, char sep = ',', const cha
     if ( quotes && quotes[1] )
         s += quotes[1];
     return s;
+}
+template<class... T>
+std::string to_string( const std::unordered_set<T...> &v, const std::string &sep = ", ", const char *quotes = "{}" )
+{
+    return to_string_set( v, sep, quotes );
+}
+template<class Map>
+std::string to_string_map( const Map &v, const std::string &kvSep = ": ", const std::string &sep = ", ", const char *quotes = "{}" )
+{
+    std::string s;
+    if ( quotes && quotes[0] )
+        s += quotes[0];
+    int i = 0;
+    for ( const auto &e : v )
+    {
+        if ( i++ )
+            s += sep;
+        s += to_string( e.first ) + kvSep + to_string( e.second );
+    }
+    if ( quotes && quotes[1] )
+        s += quotes[1];
+    return s;
+}
+template<class... T>
+std::string to_string( const std::unordered_map<T...> &v, const std::string &kvSep = ": ", const std::string &sep = ", ", const char *quotes = "{}" )
+{
+    return to_string_map( v, kvSep, sep, quotes );
 }
 template<class... T, size_t nth = 0>
 std::string to_string( const std::tuple<T...> &tup, std::string_view sep = ", ", const char *quotes = "()" )
@@ -1010,6 +1044,13 @@ public:
     }
 };
 
+using IDataFramePtr = std::shared_ptr<IDataFrame>;
+
+inline std::ostream &operator<<( std::ostream &os, const IDataFrame &df )
+{
+    return df.print( os );
+}
+
 ///////////////////////////////////////////////////////////////
 /// RecordOrFieldRef
 ///////////////////////////////////////////////////////////////
@@ -1051,6 +1092,18 @@ struct RecordOrFieldRef
         return at( nthField );
     }
 };
+
+template<bool isSingleT>
+std::string to_string( const RecordOrFieldRef<isSingleT> &rec )
+{
+    return to_string_vec( rec );
+}
+template<bool isSingleT>
+std::ostream &operator<<( std::ostream &os, const RecordOrFieldRef<isSingleT> &rec )
+{
+    return os << to_string( rec );
+}
+
 template<bool isSingle>
 struct hash_code<RecordOrFieldRef<isSingle>>
 {
@@ -1148,6 +1201,10 @@ struct FieldHashDelegate
         return get();
     }
 };
+inline std::string to_string( const FieldHashDelegate &val )
+{
+    return to_string( val.m_data );
+}
 template<>
 struct hash_code<FieldHashDelegate>
 {
@@ -1192,6 +1249,10 @@ struct MultiColFieldsHashDelegate
         }
     }
 };
+inline std::string to_string( const MultiColFieldsHashDelegate &val )
+{
+    return to_string( val.m_data );
+}
 
 template<>
 struct hash_code<MultiColFieldsHashDelegate>

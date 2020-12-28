@@ -18,6 +18,7 @@
 #pragma once
 
 #include <zj/IDataFrame.h>
+#include <sstream>
 
 namespace zj
 {
@@ -39,16 +40,18 @@ protected:
 public:
     RowDataFrame() = default;
 
-    RowDataFrame( const std::vector<std::vector<std::string>> &rows, const ColumnDefs &columnDefs = {}, std::ostream *err = nullptr )
+    RowDataFrame( const std::vector<std::vector<std::string>> &rows, const ColumnDefs &columnDefs )
     {
-        if ( !from_records( rows, columnDefs, err ) )
-            clear();
+        std::stringstream err;
+        if ( !from_records( rows, columnDefs, &err ) )
+            throw std::runtime_error( "Failed to create RowDataFrame from strings vector: " + err.str() );
     }
     template<class... T>
-    RowDataFrame( const std::vector<std::tuple<T...>> &tups, const std::vector<std::string> &colNames = {}, std::ostream *err = nullptr )
+    RowDataFrame( const std::vector<std::tuple<T...>> &tups, const std::vector<std::string> &colNames = {} )
     {
+        std::stringstream err;
         if ( !from_tuples( tups, colNames, err ) )
-            clear();
+            throw std::runtime_error( "Failed to create RowDataFrame from tuple vector: " + err.str() );
     }
     ~RowDataFrame() override
     {
