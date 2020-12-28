@@ -97,7 +97,6 @@ auto findRows_Hash_ISIN( const ConditionIsIn *pCondIsin, const MultiColHashMulti
     {
         assert( delg.m_data.index() == 1 && "It's a Record type not a position!" );
         const Record &rec = std::get<1>( delg.m_data );
-        std::cout << " looking for hash key:" << to_string( rec ) << std::endl;
         if ( auto prows = pHashIndex->at( rec ) )
             if constexpr ( ReturnVecOrSet )
                 irows.insert( irows.end(), prows->begin(), prows->end() );

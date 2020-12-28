@@ -279,17 +279,29 @@ struct ConditionIsIn : public ICondition
 // !AddExpr
 // \note !OrExpr is not allowed.
 class Expr;
-struct ColNames
+struct ColName
 {
-    std::vector<std::string> cols;
+    std::vector<std::string> cols; // holds single value.
 
     // cols are inited already
-    Expr isin( std::vector<Record> vals );
-    Expr isin( Record vals );
-
-    Expr notin( std::vector<Record> vals );
-    Expr notin( Record vals );
+    Expr isin( Record vals ) const;
+    Expr notin( Record vals ) const;
 };
+struct ColNames
+{
+    std::vector<std::string> cols; // holds multiple values.
+
+    // cols are inited already
+    Expr isin( std::vector<Record> vals ) const;
+    Expr notin( std::vector<Record> vals ) const;
+
+    template<class... T>
+    Expr isin( std::vector<std::tuple<T...>> vals ) const;
+    template<class... T>
+    Expr notin( std::vector<std::tuple<T...>> vals ) const;
+};
+template<class ColT>
+static constexpr bool isColNameType = std::is_same_v<ColName, std::decay_t<ColT>> || std::is_same_v<ColNames, std::decay_t<ColT>>;
 
 struct Expr
 {
@@ -394,18 +406,21 @@ inline std::ostream &operator<<( std::ostream &os, const OrExpr &v )
     return os << to_string( v );
 }
 
+/// \return ColNames if mulitple args are give; ColName for single arg.
 template<class... T>
-ColNames Col( T &&... args )
+auto Col( T &&... args )
 {
+    static_assert( sizeof...( T ) != 0 );
     static_assert( ( std::is_constructible_v<std::string, T> && ... ) );
-
-    SCols cols{std::forward<T>( args )...};
-    return {std::move( cols )};
+    if constexpr ( sizeof...( T ) > 1 )
+        return ColNames{SCols{std::forward<T>( args )...}};
+    else
+        return ColName{SCols{std::forward<T>( args )...}};
 }
 
 // Col < val
 template<class T>
-Expr operator<( ColNames &&cols, T &&val )
+std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator<( ColName &&cols, T &&val )
 {
     assert( cols.cols.size() == 1 );
     return Expr{std::move( cols.cols ), OperatorTag::LT, Record{field( std::move( val ) )}};
@@ -421,7 +436,7 @@ Expr operator<( ColNames &&cols, std::tuple<Args...> &&val )
 }
 // Col == val
 template<class T>
-Expr operator==( ColNames &&cols, T &&val )
+std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator==( ColName &&cols, T &&val )
 {
     assert( cols.cols.size() == 1 );
     return Expr{std::move( cols.cols ), OperatorTag::EQ, {Record{field( val )}}};
@@ -438,7 +453,7 @@ Expr operator==( ColNames &&cols, std::tuple<Args...> &&val )
 
 // Col != val
 template<class T>
-Expr operator!=( ColNames &&cols, T &&val )
+std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator!=( ColName &&cols, T &&val )
 {
     assert( cols.cols.size() == 1 );
     return Expr{std::move( cols.cols ), OperatorTag::NE, {Record{field( val )}}};
@@ -453,18 +468,60 @@ Expr operator!=( ColNames &&cols, std::tuple<Args...> &&val )
     return Expr{std::move( cols.cols ), OperatorTag::NE, recordtup( val )};
 }
 
+// Col > val
+template<class T>
+std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator>( ColName &&cols, T &&val )
+{
+    assert( cols.cols.size() == 1 );
+    return Expr{std::move( cols.cols ), OperatorTag::GT, {Record{field( val )}}};
+}
+
+// Cols > vals
+template<class... Args>
+Expr operator>( ColNames &&cols, std::tuple<Args...> &&val )
+{
+    static_assert( CompatibleFieldTypes<Args...>() );
+    assert( cols.cols.size() == sizeof...( Args ) );
+    return Expr{std::move( cols.cols ), OperatorTag::GT, recordtup( val )};
+}
+
+// Col >= val
+template<class T>
+std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator>=( ColName &&cols, T &&val )
+{
+    assert( cols.cols.size() == 1 );
+    return Expr{std::move( cols.cols ), OperatorTag::GE, {Record{field( val )}}};
+}
+
+// Cols >= vals
+template<class... Args>
+Expr operator>=( ColNames &&cols, std::tuple<Args...> &&val )
+{
+    static_assert( CompatibleFieldTypes<Args...>() );
+    assert( cols.cols.size() == sizeof...( Args ) );
+    return Expr{std::move( cols.cols ), OperatorTag::GE, recordtup( val )};
+}
+
+// Col <= val
+template<class T>
+std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator<=( ColName &&cols, T &&val )
+{
+    assert( cols.cols.size() == 1 );
+    return Expr{std::move( cols.cols ), OperatorTag::LE, {Record{field( val )}}};
+}
+
+// Cols <= vals
+template<class... Args>
+Expr operator<=( ColNames &&cols, std::tuple<Args...> &&val )
+{
+    static_assert( CompatibleFieldTypes<Args...>() );
+    assert( cols.cols.size() == sizeof...( Args ) );
+    return Expr{std::move( cols.cols ), OperatorTag::LE, recordtup( val )};
+}
 
 //---------------- is in ----------------------
 
-inline Expr ColNames::isin( std::vector<Record> vals )
-{
-    assert( cols.size() && cols.size() == vals.at( 0 ).size() && "Multi-value element" );
-    if ( cols.size() != vals.at( 0 ).size() )
-        throw std::range_error( "isin Error! columns size: " + std::to_string( cols.size() ) + " != " + std::to_string( vals.at( 0 ).size() ) );
-    return {cols, OperatorTag::ISIN, std::move( vals )};
-}
-
-inline Expr ColNames::isin( Record vals )
+inline Expr ColName::isin( Record vals ) const
 {
     assert( cols.size() == 1 && "Multi" );
     if ( cols.size() != 1 )
@@ -474,20 +531,42 @@ inline Expr ColNames::isin( Record vals )
         v.push_back( Record{std::move( e )} );
     return {cols, OperatorTag::ISIN, std::move( v )};
 }
-inline Expr ColNames::notin( std::vector<Record> vals )
-{
-    auto r = isin( std::move( vals ) );
-    r.compareOrIn = OperatorTag::NOTIN;
-    return r;
-}
-inline Expr ColNames::notin( Record vals )
+inline Expr ColName::notin( Record vals ) const
 {
     auto r = isin( std::move( vals ) );
     r.compareOrIn = OperatorTag::NOTIN;
     return r;
 }
 
-//---------------- logic and ----------------------
+inline Expr ColNames::isin( std::vector<Record> vals ) const
+{
+    assert( cols.size() && cols.size() == vals.at( 0 ).size() && "Multi-value element" );
+    if ( cols.size() != vals.at( 0 ).size() )
+        throw std::range_error( "isin Error! columns size: " + std::to_string( cols.size() ) + " != " + std::to_string( vals.at( 0 ).size() ) );
+    return {cols, OperatorTag::ISIN, std::move( vals )};
+}
+
+inline Expr ColNames::notin( std::vector<Record> vals ) const
+{
+    auto r = isin( std::move( vals ) );
+    r.compareOrIn = OperatorTag::NOTIN;
+    return r;
+}
+
+template<class... T>
+Expr ColNames::isin( std::vector<std::tuple<T...>> vals ) const
+{
+    return isin( recordtup( std::move( vals ) ) );
+}
+
+template<class... T>
+Expr ColNames::notin( std::vector<std::tuple<T...>> vals ) const
+{
+    return notin( recordtup( std::move( vals ) ) );
+}
+
+
+//---------------- logic and ----------------------------------------------------------------------
 inline AndExpr operator&&( Expr &&a, Expr &&b )
 {
     return AndExpr{{std::move( a ), std::move( b )}};

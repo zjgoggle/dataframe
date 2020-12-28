@@ -19,6 +19,7 @@
 #include <numeric>
 
 #include <zj/IDataFrame.h>
+#include <zj/Indexing.h>
 
 namespace zj
 {
@@ -144,6 +145,18 @@ public:
         std::vector<size_t> icols( df.countCols(), 0 );
         std::iota( icols.begin(), icols.end(), 0 );
         return create_column_view_impl( df, std::move( icols ), err );
+    }
+
+    void sort_by( const std::vector<std::string> &colNames, bool bReverseOrder = false )
+    {
+        MultiColOrderedIndex ordered;
+        ordered.create( *this, colNames, bReverseOrder );
+        const auto &orderedRows = ordered.getRowIndices();
+        std::vector<Rowindex> newIndices;
+        newIndices.reserve( size() );
+        for ( auto i : orderedRows )
+            newIndices.push_back( m_rowIndices[i] );
+        m_rowIndices = std::move( newIndices );
     }
 
     //////////////////////////////////////////////////////////

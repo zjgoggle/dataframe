@@ -247,8 +247,9 @@ template<class PrimitiveType>
 struct CompatibleFieldType
 {
     static constexpr bool is_defined = FieldValue<PrimitiveType>::type != FieldTypeTag::End;
-    static constexpr bool is_other_string =
-            std::is_same_v<std::string_view, std::decay_t<PrimitiveType>> || std::is_same_v<const char *, PrimitiveType>;
+    static constexpr bool is_other_string = std::is_same_v<std::string_view, std::decay_t<PrimitiveType>> ||
+                                            std::is_same_v<const char *, std::decay_t<PrimitiveType>> ||
+                                            std::is_same_v<char *, std::decay_t<PrimitiveType>>;
     static constexpr bool value = is_defined || is_other_string;
     using type = std::conditional_t<is_other_string, std::string, std::decay_t<PrimitiveType>>;
 };
@@ -256,13 +257,13 @@ struct CompatibleFieldType
 template<class PrimitiveType>
 using CompatibleFieldType_t = typename CompatibleFieldType<PrimitiveType>::type;
 template<class PrimitiveType>
-using CompatibleFieldType_v = typename CompatibleFieldType<PrimitiveType>::value;
+static constexpr bool CompatibleFieldType_v = CompatibleFieldType<PrimitiveType>::value;
 
 
 template<class... Args>
 constexpr bool CompatibleFieldTypes()
 {
-    return ( CompatibleFieldType<Args>::value && ... );
+    return ( CompatibleFieldType_v<Args> && ... );
 }
 
 using FieldRef = std::reference_wrapper<const VarField>;
@@ -283,6 +284,7 @@ inline bool operator==( const VarField &a, const VarField &b )
     int anynull = ( a.index() == 0 ? 1 : 0 ) | ( b.index() == 0 ? 2 : 0 );
     if ( anynull )
         return anynull == 3;
+    assert( a.index() == b.index() ); // may throw
     return std::operator==( a, b );
 }
 inline bool operator!=( const VarField &a, const VarField &b )
@@ -294,6 +296,7 @@ inline bool operator<( const VarField &a, const VarField &b )
     int anynull = ( a.index() == 0 ? 1 : 0 ) | ( b.index() == 0 ? 2 : 0 );
     if ( anynull )
         return ( anynull == 1 ); // null is always less than non-null.
+    assert( a.index() == b.index() );
     return std::operator<( a, b );
 }
 inline bool operator>( const VarField &a, const VarField &b )
@@ -301,6 +304,7 @@ inline bool operator>( const VarField &a, const VarField &b )
     int anynull = ( a.index() == 0 ? 1 : 0 ) | ( b.index() == 0 ? 2 : 0 );
     if ( anynull )
         return ( anynull == 2 ); // null is always less than non-null.
+    assert( a.index() == b.index() );
     return std::operator>( a, b );
 }
 inline bool operator<=( const VarField &a, const VarField &b )

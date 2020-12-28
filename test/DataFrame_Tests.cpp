@@ -14,27 +14,7 @@ ADD_TEST_CASE( DataFrame_Basic )
     using Tup = std::tuple<std::string, int, float, char, Timestamp>;
     using Tups = std::vector<Tup>;
     RowDataFrame df, df1;
-    //    ConditionIsIn<false> isIn2;
-    { // ParseTimestamp
-        auto opDateTime = ParseDateTime( "20201225 12:05:02-4", &std::cerr );
-        REQUIRE_EQ( *opDateTime, *ParseDateTime( opDateTime->to_string(), &std::cerr ) );
 
-        REQUIRE_EQ( ParseDateTime( "2000/10/22", &std::cerr )->to_string(), "2000-10-22" );
-        REQUIRE_EQ( ParseDateTime( "20:08:10", &std::cerr )->to_string(), "20:08:10" );
-        REQUIRE_EQ( ParseDateTime( "20:08:10.12", &std::cerr )->to_string( nullptr, 2 ), "20:08:10.12" );
-        REQUIRE_EQ( ParseDateTime( "20:08:10.12 -3:30", &std::cerr )->to_string( nullptr, 2 ), "20:08:10.12-0330" );
-        REQUIRE_EQ( ParseDateTime( "20201225 12:05:02-4", &std::cerr )->to_string(), "2020-12-25T12:05:02-0400" );
-        REQUIRE_EQ( ParseDateTime( "12/25/2020T12:05:02.123 +4:30", &std::cerr )->to_string( nullptr, 3 ), "2020-12-25T12:05:02.123+0430" );
-        REQUIRE_EQ( ParseDateTime( "12/25/2020T12:05:02.123", &std::cerr )->to_string(), "2020-12-25T12:05:02" );
-        REQUIRE_EQ( ParseDateTime( "12/25/2020T13:05:02.123", &std::cerr )->to_string( nullptr, 0, -1, true ), "2020-12-25T13:05:02" ); // asUTC
-    }
-    { // PrintTimestamp
-        char buf[50];
-        auto now = std::chrono::system_clock::now();
-        std::cout << "Local Time: " << PrintTimestamp( buf, 40, now.time_since_epoch(), "%Y-%m-%d %T", 0, true ) << std::endl;
-        std::cout << "UTC Time:   " << PrintTimestamp( buf, 40, now.time_since_epoch(), "%Y-%m-%d %T", 6, true ) << std::endl;
-        std::cout << "GMT+8 Time: " << PrintTimestamp( buf, 40, now.time_since_epoch(), "%Y-%m-%dT%T", 3, true, 8 * 60 ) << std::endl;
-    }
     //    SECTION( "from_records" )
     {
         std::vector<ColumnDef> colDefs = {
@@ -48,9 +28,6 @@ ADD_TEST_CASE( DataFrame_Basic )
         REQUIRE_EQ( shape[1], 5u ); // cols
 
         REQUIRE_EQ( df( 0, 1 ), field( 23 ) );
-
-        std::cout << "---- DataFrame 0 ----\n";
-        df.print( std::cout );
     }
 
     //    SECTION( "from_tuple" )
@@ -60,17 +37,42 @@ ADD_TEST_CASE( DataFrame_Basic )
                                   &std::cerr ) );
 
         REQUIRE_EQ( df1.size(), 2u );
-        std::cout << "---- DataFrame 1 ----\n";
-        df1.print( std::cout );
 
         //-- append
         REQUIRE( df.append( df1, &std::cerr ) );
         REQUIRE_EQ( df.size(), 4u );
-
+    }
+    SECTION( "PrintDataFrame" )
+    {
+        std::cout << "---- DataFrame 1 ----\n";
+        df1.print( std::cout );
         std::cout << "---- DataFrame 0 and 1 ----\n";
         df.print( std::cout );
     }
+    SECTION( "ParseTimestamp" )
+    { // ParseTimestamp
+        auto opDateTime = ParseDateTime( "20201225 12:05:02-4", &std::cerr );
+        REQUIRE_EQ( *opDateTime, *ParseDateTime( opDateTime->to_string(), &std::cerr ) );
 
+        REQUIRE_EQ( ParseDateTime( "2000/10/22", &std::cerr )->to_string(), "2000-10-22" );
+        REQUIRE_EQ( ParseDateTime( "20:08:10", &std::cerr )->to_string(), "20:08:10" );
+        REQUIRE_EQ( ParseDateTime( "20:08:10.12", &std::cerr )->to_string( nullptr, 2 ), "20:08:10.12" );
+        REQUIRE_EQ( ParseDateTime( "20:08:10.12 -3:30", &std::cerr )->to_string( nullptr, 2 ), "20:08:10.12-0330" );
+        REQUIRE_EQ( ParseDateTime( "20201225 12:05:02-4", &std::cerr )->to_string(), "2020-12-25T12:05:02-0400" );
+        REQUIRE_EQ( ParseDateTime( "12/25/2020T12:05:02.123 +4:30", &std::cerr )->to_string( nullptr, 3 ), "2020-12-25T12:05:02.123+0430" );
+        REQUIRE_EQ( ParseDateTime( "12/25/2020T12:05:02.123", &std::cerr )->to_string(), "2020-12-25T12:05:02" );
+        REQUIRE_EQ( ParseDateTime( "12/25/2020T13:05:02.123", &std::cerr )->to_string( nullptr, 0, -1, true ), "2020-12-25T13:05:02" ); // asUTC
+    }
+    SECTION( "PrintTimestamp" )
+    { // PrintTimestamp
+        char buf[50];
+        auto now = std::chrono::system_clock::now();
+        std::cout << "Local Time: " << PrintTimestamp( buf, 40, now.time_since_epoch(), "%Y-%m-%d %T", 0, true ) << std::endl;
+        std::cout << "UTC Time:   " << PrintTimestamp( buf, 40, now.time_since_epoch(), "%Y-%m-%d %T", 6, true ) << std::endl;
+        std::cout << "GMT+8 Time: " << PrintTimestamp( buf, 40, now.time_since_epoch(), "%Y-%m-%dT%T", 3, true, 8 * 60 ) << std::endl;
+    }
+
+    SECTION( "HashIndex" )
     // HashIndex
     {
         HashIndex hidxName;
@@ -86,12 +88,14 @@ ADD_TEST_CASE( DataFrame_Basic )
         HashIndex hidxLevel;
         REQUIRE( !hidxLevel.create( df, "Level" ) ); // has duplicte values
     }
+    SECTION( "OrderedIndex" )
     // OrderedIndex
     {
         OrderedIndex oidxName;
         oidxName.create( df, 0 );
         REQUIRE_EQ( *oidxName.findFirst( field( "Jeff" ) ), 0u ); // the first one.
     }
+    SECTION( "MultiColOrderedIndex" )
     // MultiColOrderedIndex
     {
         MultiColOrderedIndex idxLevelScore;
@@ -103,6 +107,7 @@ ADD_TEST_CASE( DataFrame_Basic )
         sortedBirth.create( df, SCols{"BirthDate"} );
         REQUIRE_EQ( sortedBirth[0], 1u );
     }
+    SECTION( "MultiColHashIndex" )
     // MultiColHashIndex
     {
         MultiColHashIndex hidxLevelAge;
@@ -112,6 +117,7 @@ ADD_TEST_CASE( DataFrame_Basic )
         Record key{field( 'A' ), field( 24 )};
         REQUIRE_EQ( hidxLevelAge[key], 2u ); // Jonathon
     }
+    SECTION( "MultiColHashMultiIndex" )
     // MultiColHashMultiIndex
     {
         MultiColHashMultiIndex hidxLevel;
@@ -125,6 +131,7 @@ ADD_TEST_CASE( DataFrame_Basic )
 
         REQUIRE_EQ( Set( hidxName[record( "John" )] ), Set( ULongVec{0} ) ); // John, Jonathon
     }
+    SECTION( "DataFrameView" )
     // DataFrameView
     {
         DataFrameView cv;
@@ -146,6 +153,7 @@ ADD_TEST_CASE( DataFrame_Basic )
         std::cout << "---- DataFrameView: Name, Level [1..3] ----\n";
         gv.print( std::cout );
     }
+    SECTION( "View & Index" )
     // View & Index
     {
         OrderedIndex orderedAge;
@@ -156,6 +164,7 @@ ADD_TEST_CASE( DataFrame_Basic )
         std::cout << "---- DataFrameView: sorted by age ----\n";
         gv.print( std::cout );
     }
+    SECTION( "Condition" )
     // Condition
     {
         ConditionCompare nameEQ;
@@ -177,6 +186,7 @@ ADD_TEST_CASE( DataFrame_Basic )
         REQUIRE( !isInNames.evalAtRow( 2 ) );
         REQUIRE( isInNames.evalAtRow( 3 ) );
     }
+    SECTION( "Logic Expression" )
     // Logic Expression
     {
         std::cout << "---- Logic Expressions ----\n";
@@ -188,7 +198,10 @@ ADD_TEST_CASE( DataFrame_Basic )
         std::cout << "LT:   " << ltExp << std::endl;
 
         Expr isinExpr = !Col( "Age" ).isin( {field( 23 ), field( 24 )} );
-        std::cout << "ISIN:   " << isinExpr << std::endl;
+        std::cout << "Age ISIN: " << isinExpr << std::endl;
+
+        Expr multiIsinExpr = Col( "Age,", "Level" ).isin( {record( 23, 'A' ), record( 24, 'C' )} );
+        std::cout << "Age+Level ISIN: " << multiIsinExpr << std::endl;
 
         AndExpr andExpr = Col( "Name" ) == "John" && Col( "Age", "Level" ) < mktuple( 15, 'B' );
         REQUIRE_EQ( andExpr.ops.size(), 2u );
@@ -198,26 +211,30 @@ ADD_TEST_CASE( DataFrame_Basic )
         REQUIRE_EQ( orExpr.ops.size(), 3u );
         std::cout << "OR     " << orExpr << std::endl;
     }
+    SECTION( "HashIndex + isin/eq/notin/ne" )
     // HashIndex + isin/eq/notin/ne
     {
-        DataFrameWithIndex dfidx( IDataFramePtr( df.deepCopy() ) ); // datafram with index
+        DataFrameWithIndex dfidx( IDataFramePtr( df.deepCopy() ) ); // dataframe with index
         dfidx.addIndex( IndexType::HashIndex, {"Name"}, "NameHash" );
         std::cout << "--- DataFrameWithIndex ---\n";
         std::cout << dfidx << std::endl;
 
-        auto viewIsin = dfidx.select( Col( "Name" ).isin( record( "John", "Jeff" ) ) ); // ISIN
-        REQUIRE_EQ( viewIsin.size(), 2u );
-        std::cout << "------- view of  name isin [John, Jeff] -----\n" << viewIsin << std::endl;
+        auto viewISIN = dfidx.select( Col( "Name" ).isin( record( "John", "Jeff" ) ) ); // ISIN
+        REQUIRE_EQ( viewISIN.size(), 2u );
+        std::cout << "------- view of  name isin [John, Jeff] -----\n" << viewISIN << std::endl;
 
-        auto viewEq = dfidx.select( {"Name", "Age", "Level"}, Col( "Name" ) == "Tom" ); // EQ
-        REQUIRE_EQ( viewEq.size(), 1u );
-        std::cout << "------- view of  name == Tom -----\n" << viewEq << std::endl;
+        auto viewNOTIN = dfidx.select( Col( "Name" ).notin( record( "John", "Jeff" ) ) ); // ISIN
+        REQUIRE_EQ( viewNOTIN.size(), 2u );
+        std::cout << "------- view of  name notin [John, Jeff] -----\n" << viewNOTIN << std::endl;
 
-        auto viewNe = dfidx.select( {"Name", "Age", "Level"}, Col( "Name" ) != "Tom" ); // NE
-        REQUIRE_EQ( viewNe.size(), dfidx.size() - 1u );
-        std::cout << "------- view of  name != Tom -----\n" << viewNe << std::endl;
+        auto viewEQ = dfidx.select( {"Name", "Age", "Level"}, Col( "Name" ) == "Tom" ); // EQ
+        REQUIRE_EQ( viewEQ.size(), 1u );
+        std::cout << "------- view of  name == Tom -----\n" << viewEQ << std::endl;
+
+        auto viewNE = dfidx.select( {"Name", "Age", "Level"}, Col( "Name" ) != "Tom" ); // NE
+        REQUIRE_EQ( viewNE.size(), dfidx.size() - 1u );
+        viewNE.sort_by( {"Age"} );
+        std::cout << "------- view of  name != Tom sorted by Age -----\n" << viewNE << std::endl;
     }
     // OrderedIdex +
-    {
-    }
 }
