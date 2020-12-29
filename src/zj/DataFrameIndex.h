@@ -132,6 +132,16 @@ public:
         }
         return addIndex( indexType, m_pDataFrame->colIndex( colNames ), indexName, err );
     }
+    std::optional<iterator> addHashIndex( const std::vector<std::string> &colNames, const std::string &indexName = "", std::ostream *err = nullptr )
+    {
+        return addIndex( IndexType::HashIndex, colNames, indexName, err );
+    }
+    std::optional<iterator> addOrderedIndex( const std::vector<std::string> &colNames,
+                                             const std::string &indexName = "",
+                                             std::ostream *err = nullptr )
+    {
+        return addIndex( IndexType::OrderedIndex, colNames, indexName, err );
+    }
 
     std::optional<iterator> addIndex( IndexType indexType,
                                       std::vector<size_t> colIndices,

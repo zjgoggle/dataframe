@@ -215,7 +215,7 @@ ADD_TEST_CASE( DataFrame_Basic )
     // HashIndex + isin/eq/notin/ne
     {
         DataFrameWithIndex dfidx( IDataFramePtr( df.deepCopy() ) ); // dataframe with index
-        dfidx.addIndex( IndexType::HashIndex, {"Name"}, "NameHash" );
+        dfidx.addHashIndex( {"Name"}, "NameHash" );
         std::cout << "--- DataFrameWithIndex ---\n";
         std::cout << dfidx << std::endl;
 
@@ -223,7 +223,7 @@ ADD_TEST_CASE( DataFrame_Basic )
         REQUIRE_EQ( viewISIN.size(), 2u );
         std::cout << "------- view of  name isin [John, Jeff] -----\n" << viewISIN << std::endl;
 
-        auto viewNOTIN = dfidx.select( Col( "Name" ).notin( record( "John", "Jeff" ) ) ); // ISIN
+        auto viewNOTIN = dfidx.select( Col( "Name" ).notin( record( "John", "Jeff" ) ) ); // NOTIN
         REQUIRE_EQ( viewNOTIN.size(), 2u );
         std::cout << "------- view of  name notin [John, Jeff] -----\n" << viewNOTIN << std::endl;
 
@@ -236,5 +236,41 @@ ADD_TEST_CASE( DataFrame_Basic )
         viewNE.sort_by( {"Age"} );
         std::cout << "------- view of  name != Tom sorted by Age -----\n" << viewNE << std::endl;
     }
-    // OrderedIdex +
+    SECTION( "OrderedIdex + OP" )
+    {
+        DataFrameWithIndex dfidx( IDataFramePtr( df.deepCopy() ) ); // dataframe with index
+        dfidx.addOrderedIndex( {"Level"} );
+
+        auto viewISIN = dfidx.select( Col( "Level" ).isin( record( 'A', 'B' ) ) ); // ISIN
+        REQUIRE_EQ( viewISIN.size(), 3u );
+        std::cout << "------- view of  Level isin [A, B] -----\n" << viewISIN << std::endl;
+
+        auto viewNOTIN = dfidx.select( Col( "Level" ).notin( record( 'A', 'B' ) ) ); // NOTIN
+        REQUIRE_EQ( viewNOTIN.size(), 1u );
+        std::cout << "------- view of  Level not [A, B] -----\n" << viewNOTIN << std::endl;
+
+        auto viewEQ = dfidx.select( Col( "Level" ) == 'A' ); // EQ
+        REQUIRE_EQ( viewEQ.size(), 2u );
+        std::cout << "------- view of  Level == A -----\n" << viewEQ << std::endl;
+
+        auto viewNE = dfidx.select( Col( "Level" ) != 'A' ); // NE
+        REQUIRE_EQ( viewNE.size(), 2u );
+        std::cout << "------- view of  Level != A -----\n" << viewNE << std::endl;
+
+        auto viewGT = dfidx.select( Col( "Level" ) > 'B' ); // GT
+        REQUIRE_EQ( viewGT.size(), 1u );
+        std::cout << "------- view of  Level > B -----\n" << viewGT << std::endl;
+
+        auto viewGE = dfidx.select( Col( "Level" ) >= 'B' ); // GE
+        REQUIRE_EQ( viewGE.size(), 2u );
+        std::cout << "------- view of  Level >= B -----\n" << viewGE << std::endl;
+
+        auto viewLT = dfidx.select( Col( "Level" ) < 'B' ); // LT
+        REQUIRE_EQ( viewLT.size(), 2u );
+        std::cout << "------- view of  Level < B -----\n" << viewLT << std::endl;
+
+        auto viewLE = dfidx.select( Col( "Level" ) <= 'B' ); // LE
+        REQUIRE_EQ( viewLE.size(), 3u );
+        std::cout << "------- view of  Level <= B -----\n" << viewLE << std::endl;
+    }
 }

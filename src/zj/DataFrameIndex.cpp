@@ -119,6 +119,31 @@ auto findRows_Hash_EQ( const ConditionCompare *pCondCompare, const MultiColHashM
     return irows;
 }
 
+
+std::vector<Rowindex> findRows_Ordered_ISIN( const ConditionIsIn *pCondIsin, const MultiColOrderedIndex *pOrderedIndex )
+{
+    std::vector<Rowindex> irows;
+    // check all the possible values in condition. Usually the size of which is much less than size of dataframe.
+    for ( const MultiColFieldsHashDelegate &delg : pCondIsin->m_val )
+    {
+        assert( delg.m_data.index() == 1 && "It's a Record type not a position!" );
+        const Record &rec = std::get<1>( delg.m_data );
+        auto range = pOrderedIndex->findEqualRange( rec );
+        for ( size_t i = range.first, N = range.second; i < N; ++i )
+            irows.push_back( pOrderedIndex->at( i ) );
+    }
+    return irows;
+}
+std::vector<Rowindex> findRows_Ordered_EQ( const ConditionCompare *pCondCompare, const MultiColOrderedIndex *pOrderedIndex )
+{
+    std::vector<Rowindex> irows;
+    const Record &rec = pCondCompare->m_val;
+    auto range = pOrderedIndex->findEqualRange( rec );
+    for ( size_t i = range.first, N = range.second; i < N; ++i )
+        irows.push_back( pOrderedIndex->at( i ) );
+    return irows;
+}
+
 std::vector<Rowindex> DataFrameWithIndex::findRows( Expr expr ) const
 {
     std::stringstream err;
@@ -131,6 +156,7 @@ std::vector<Rowindex> DataFrameWithIndex::findRows( Expr expr ) const
     auto [pOrderedIndex, pHashIndex] = findIndex( icols );
     ConditionIsIn *pCondIsin = dynamic_cast<ConditionIsIn *>( pCond.get() );
     ConditionCompare *pCondCompare = dynamic_cast<ConditionCompare *>( pCond.get() );
+    std::vector<Rowindex> irows;
 
     if ( pHashIndex )
     {
@@ -166,14 +192,74 @@ std::vector<Rowindex> DataFrameWithIndex::findRows( Expr expr ) const
     {
         if ( op == OperatorTag::ISIN )
         {
-            // todo
+            return findRows_Ordered_ISIN( pCondIsin, pOrderedIndex );
+        }
+        else if ( op == OperatorTag::EQ )
+        {
+            return findRows_Ordered_EQ( pCondCompare, pOrderedIndex );
+        }
+        else if ( op == OperatorTag::NOTIN )
+        {
+            auto rowsToExclude = findRows_Ordered_ISIN( pCondIsin, pOrderedIndex );
+            std::sort( rowsToExclude.begin(), rowsToExclude.end() );
+            return getRowsNotInSorted( rowsToExclude );
+        }
+        else if ( op == OperatorTag::NE )
+        {
+            auto rowsToExclude = findRows_Ordered_EQ( pCondCompare, pOrderedIndex );
+            std::sort( rowsToExclude.begin(), rowsToExclude.end() );
+            return getRowsNotInSorted( rowsToExclude );
+        }
+        else if ( op == OperatorTag::GT )
+        {
+            if ( auto p0 = pOrderedIndex->findFirstGT( pCondCompare->m_val ) )
+                for ( size_t i = *p0, N = pOrderedIndex->size(); i < N; ++i )
+                    irows.push_back( pOrderedIndex->at( i ) );
+            return irows;
+        }
+        else if ( op == OperatorTag::GE )
+        {
+            if ( auto p0 = pOrderedIndex->findFirstGE( pCondCompare->m_val ) )
+                for ( size_t i = *p0, N = pOrderedIndex->size(); i < N; ++i )
+                    irows.push_back( pOrderedIndex->at( i ) );
+            return irows;
+        }
+        else if ( op == OperatorTag::LT )
+        {
+            if ( auto p0 = pOrderedIndex->findFirstGE( pCondCompare->m_val ) )
+            {
+                for ( size_t i = 0, N = *p0; i < N; ++i )
+                    irows.push_back( pOrderedIndex->at( i ) );
+            }
+            else // all elements are less than value.
+            {
+                irows.resize( size() );
+                std::iota( irows.begin(), irows.end(), 0 );
+            }
+            return irows;
+        }
+        else if ( op == OperatorTag::LE )
+        {
+            if ( auto p0 = pOrderedIndex->findFirstGT( pCondCompare->m_val ) )
+            {
+                for ( size_t i = 0, N = *p0; i < N; ++i )
+                    irows.push_back( pOrderedIndex->at( i ) );
+            }
+            else // all elements are LE value.
+            {
+                irows.resize( size() );
+                std::iota( irows.begin(), irows.end(), 0 );
+            }
+            return irows;
         }
     }
 
-    // todo search dataframe by rows.
+    for ( size_t i = 0, N = size(); i < N; ++i )
     {
-        throw std::runtime_error( "Not Implemented error: " + to_string( expr ) );
+        if ( pCond->evalAtRow( i ) )
+            irows.push_back( i );
     }
+    return irows;
 }
 
 } // namespace zj

@@ -435,11 +435,9 @@ public:
     }
 
     // get the row index of the element that is in n-th position of Index.
-    std::optional<Rowindex> at( size_t nth ) const
+    Rowindex at( size_t nth ) const
     {
-        if ( nth < size() )
-            return getRowIndices()[nth];
-        return {};
+        return getRowIndices().at( nth );
     }
 
     /// Find the first element >= val.
@@ -495,12 +493,32 @@ public:
         }
         return {};
     }
+    /// \return <firstPos, lastPos+1>; <0,0> for empty.
+    std::pair<size_t, size_t> findEqualRange( const RecordType &val, size_t pos = 0, size_t end = 0 ) const
+    {
+        if ( auto p0 = findFirst( val, pos, end ) )
+        {
+            auto i0 = *p0 + 1;
+            if ( i0 < size() && refAt( i0 ) == val ) // the next one still equals vals.
+            {
+                auto p1 = findLast( val, i0 );
+                assert( p1 );
+                return {*p0, *p1 + 1};
+            }
+            else
+                return {*p0, i0}; // found only one elements.
+        }
+        return {0u, 0u}; // empty
+    }
+
     /// \return index of i-th record.
     Rowindex operator[]( size_t k ) const
     {
-        if ( auto v = at( k ) )
-            return *v;
-        throw std::out_of_range( "MultiColOrderedIndex:key:" + to_string( k ) );
+        return at( k );
+    }
+    RecordRef refAt( size_t k ) const
+    {
+        return RecordRef{m_pDataFrame, at( k ), &m_cols};
     }
     size_t size() const
     {
