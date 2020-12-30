@@ -266,17 +266,11 @@ constexpr bool CompatibleFieldTypes()
     return ( CompatibleFieldType_v<Args> && ... );
 }
 
-using FieldRef = std::reference_wrapper<const VarField>;
+// using FieldRef = std::reference_wrapper<const VarField>;
 
 using Record = std::vector<VarField>;
 
 using Rowindex = size_t;
-
-struct Series
-{
-    ColumnDef info;
-    std::vector<VarField> data;
-};
 
 //-- bellow compare the NullField with other Field types.
 inline bool operator==( const VarField &a, const VarField &b )
@@ -1000,24 +994,24 @@ public:
             res.push_back( colIndex( n ) );
         return res;
     }
-    std::vector<FieldRef> getRowRef( size_t irow ) const
-    {
-        std::vector<FieldRef> res;
-        for ( size_t i = 0, N = countCols(); i < N; ++i )
-            res.push_back( std::cref( at( irow, i ) ) );
-        return res;
-    }
-    std::vector<FieldRef> getRowRef( size_t irow, const std::vector<size_t> &icols ) const
-    {
-        std::vector<FieldRef> res;
-        for ( auto icol : icols )
-            res.push_back( std::cref( at( irow, icol ) ) );
-        return res;
-    }
-    FieldRef getRowRef( size_t irow, size_t icol ) const
-    {
-        return std::cref( at( irow, icol ) );
-    }
+    //    std::vector<FieldRef> getRowRef( size_t irow ) const
+    //    {
+    //        std::vector<FieldRef> res;
+    //        for ( size_t i = 0, N = countCols(); i < N; ++i )
+    //            res.push_back( std::cref( at( irow, i ) ) );
+    //        return res;
+    //    }
+    //    std::vector<FieldRef> getRowRef( size_t irow, const std::vector<size_t> &icols ) const
+    //    {
+    //        std::vector<FieldRef> res;
+    //        for ( auto icol : icols )
+    //            res.push_back( std::cref( at( irow, icol ) ) );
+    //        return res;
+    //    }
+    //    FieldRef getRowRef( size_t irow, size_t icol ) const
+    //    {
+    //        return std::cref( at( irow, icol ) );
+    //    }
 
     std::ostream &print( std::ostream &os, bool bHeader = true, char sepField = '|', char sepRow = '\n' ) const
     {
@@ -1034,13 +1028,11 @@ public:
         }
         for ( size_t i = 0; i < NR; ++i )
         {
-            auto row = getRowRef( i );
-            int j = 0;
-            for ( auto &f : row )
+            for ( size_t j = 0; j < NC; ++j )
             {
-                if ( j++ )
+                if ( j )
                     os << sepField;
-                os << to_string( f );
+                os << to_string( at( i, j ) );
             }
             os << sepRow;
         }

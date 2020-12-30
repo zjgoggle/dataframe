@@ -108,8 +108,8 @@ struct MultiColHashIndex : public HashIndexBase<MultiColFieldsHashDelegate>
             if ( !m_indices.insert( val ).second )
             {
                 if ( err )
-                    *err << "Failed to create MultiColHashIndex for cols:" << to_string( df.colName( icols ) ) << ". Found dupliate record: at row"
-                         << to_string( df.getRowRef( i, m_cols ) ) << ".\n";
+                    *err << "Failed to create MultiColHashIndex for cols:" << to_string( df.colName( icols ) )
+                         << ". Found dupliate record: at row=" << i << ".\n";
                 return false;
             }
         }

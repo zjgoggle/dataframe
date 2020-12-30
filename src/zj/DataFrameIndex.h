@@ -110,6 +110,11 @@ public:
     {
         return m_pDataFrame->size();
     }
+    const IDataFrame *getDataFarme() const
+    {
+        return m_pDataFrame.get();
+    }
+
 
     /// \param indexName: optional, if it's non-empty, save it as named Index which can be removed.
     /// \return iterator of Index
@@ -174,7 +179,55 @@ public:
         return select( m_pDataFrame->colIndex( colnames ), std::move( expr ) );
     }
 
+    DataFrameView select( AndExpr expr )
+    {
+        return select( std::vector<size_t>{}, std::move( expr ) );
+    }
+    DataFrameView select( const std::vector<std::string> &colnames, AndExpr expr )
+    {
+        return select( m_pDataFrame->colIndex( colnames ), std::move( expr ) );
+    }
+
+    DataFrameView select( OrExpr expr )
+    {
+        return select( std::vector<size_t>{}, std::move( expr ) );
+    }
+    DataFrameView select( const std::vector<std::string> &colnames, OrExpr expr )
+    {
+        return select( m_pDataFrame->colIndex( colnames ), std::move( expr ) );
+    }
+
+    //------------- helper functions -----------------------
+    std::optional<iterator> findIndex( IndexCategory cat, const std::vector<std::size_t> &icols ) const
+    {
+        if ( auto it = m_indexMap.find( IndexKey{cat, icols} ); it != m_indexMap.end() )
+            return it;
+        return {};
+    }
+
+    template<bool ReturnVecOrSet>
+    auto findRowsSlowPath( ICondition *pCond ) const
+    {
+        std::conditional_t<ReturnVecOrSet, std::vector<Rowindex>, std::unordered_set<Rowindex>> irows;
+        for ( size_t i = 0, N = size(); i < N; ++i )
+        {
+            if ( pCond->evalAtRow( i ) )
+            {
+                if constexpr ( ReturnVecOrSet )
+                    irows.push_back( i );
+                else
+                    irows.insert( i );
+            }
+        }
+        return irows;
+    }
+
 protected:
+    std::vector<Rowindex> findRows( ICondition *pCond, bool bEvaluateSlowPath = true ) const;
+    std::vector<Rowindex> findRows( Expr expr, bool bEvaluateSlowPath = true ) const;
+    std::vector<Rowindex> findRows( AndExpr expr ) const;
+    std::vector<Rowindex> findRows( OrExpr expr ) const;
+
     DataFrameView select( std::vector<Rowindex> irows, std::vector<size_t> icols );
     DataFrameView select_rows( std::vector<Rowindex> irows );
     DataFrameView select_cols( std::vector<Rowindex> icols );
@@ -186,30 +239,17 @@ protected:
         auto irows = findRows( std::move( expr ) );
         return colindices.empty() ? select_rows( std::move( irows ) ) : select( std::move( irows ), std::move( colindices ) );
     }
-
-    std::optional<iterator> findIndex( IndexCategory cat, const std::vector<std::size_t> &icols ) const
+    DataFrameView select( std::vector<size_t> colindices, AndExpr expr )
     {
-        if ( auto it = m_indexMap.find( IndexKey{cat, icols} ); it != m_indexMap.end() )
-            return it;
-        return {};
+        auto irows = findRows( std::move( expr ) );
+        return colindices.empty() ? select_rows( std::move( irows ) ) : select( std::move( irows ), std::move( colindices ) );
     }
-    std::pair<const MultiColOrderedIndex *, const MultiColHashMultiIndex *> findIndex( const std::vector<std::size_t> &icols ) const
+    DataFrameView select( std::vector<size_t> colindices, OrExpr expr )
     {
-        const MultiColOrderedIndex *pOrderIndex = nullptr;
-        const MultiColHashMultiIndex *pHashIndex = nullptr;
-
-        if ( auto pIt = findIndex( IndexCategory::OrderedCat, icols ) )
-        {
-            assert( ( *pIt )->second.value.index() == 0 );
-            pOrderIndex = &std::get<0>( ( *pIt )->second.value );
-        }
-        if ( auto pIt = findIndex( IndexCategory::HashCat, icols ) )
-        {
-            assert( ( *pIt )->second.value.index() == 1 );
-            pHashIndex = &std::get<1>( ( *pIt )->second.value );
-        }
-        return {pOrderIndex, pHashIndex};
+        auto irows = findRows( std::move( expr ) );
+        return colindices.empty() ? select_rows( std::move( irows ) ) : select( std::move( irows ), std::move( colindices ) );
     }
+
 
     /// Find a named index.
     std::optional<iterator> findIndex( const std::string &indexName ) const
@@ -217,35 +257,6 @@ protected:
         if ( auto it = m_nameMap.find( indexName ); it != m_nameMap.end() )
             return it->second;
         return {};
-    }
-
-    std::vector<Rowindex> findRows( Expr expr ) const;
-
-    std::vector<Rowindex> getRowsNotInSorted( const std::vector<Rowindex> &excludeSortedRows ) const
-    {
-        size_t N = m_pDataFrame->size();
-        assert( excludeSortedRows.empty() || excludeSortedRows.back() < N );
-        std::vector<Rowindex> res;
-        res.resize( m_pDataFrame->size() - excludeSortedRows.size() );
-        size_t pos = 0, startval = 0;
-        for ( auto e : excludeSortedRows )
-        {
-            auto n = e - startval; // number of values to populate.
-            std::iota( &res[pos], &res[pos + n], startval );
-            pos += n;
-            startval = e + 1;
-        }
-        std::iota( &res[pos], &res[pos + ( N - startval )], startval );
-        return res;
-    }
-    std::vector<Rowindex> getRowsNotInSet( const std::unordered_set<Rowindex> &excludeRows ) const
-    {
-        std::vector<Rowindex> res;
-        res.reserve( m_pDataFrame->size() - excludeRows.size() );
-        for ( size_t i = 0, N = m_pDataFrame->size(); i < N; ++i )
-            if ( !excludeRows.count( i ) )
-                res.push_back( i );
-        return res;
     }
 
     friend std::ostream &operator<<( std::ostream &os, const DataFrameWithIndex &df );
