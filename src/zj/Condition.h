@@ -351,7 +351,12 @@ struct AndExpr
     {
         std::vector<IConditionPtr> andConditions;
         for ( const auto &e : ops )
-            andConditions.emplace_back( e.toCondition( df, err ) );
+        {
+            if ( auto pCond = e.toCondition( df, err ) )
+                andConditions.emplace_back( std::move( pCond ) );
+            else
+                return {};
+        }
         return andConditions;
     }
 };
@@ -362,7 +367,12 @@ struct OrExpr
     {
         std::vector<std::vector<IConditionPtr>> orConditions;
         for ( const auto &e : ops )
-            orConditions.emplace_back( e.toCondition( df, err ) );
+        {
+            if ( auto conds = e.toCondition( df, err ); !conds.empty() )
+                orConditions.emplace_back( std::move( conds ) );
+            else
+                return {};
+        }
         return orConditions;
     }
 };

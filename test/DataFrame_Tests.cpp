@@ -273,4 +273,22 @@ ADD_TEST_CASE( DataFrame_Basic )
         REQUIRE_EQ( viewLE.size(), 3u );
         std::cout << "------- view of  Level <= B -----\n" << viewLE << std::endl;
     }
+    SECTION( "AndExpr+OrExpr" )
+    {
+        auto a = field( 65 );
+        auto b = field( 'A' );
+        auto c = a == b;
+        ASSERT( c );
+        DataFrameWithIndex dfidx( IDataFramePtr( df.deepCopy() ) ); // dataframe with index
+        dfidx.addOrderedIndex( {"Level"} );
+
+        auto viewAnd = dfidx.select( Col( "Level" ) >= 'B' && Col( "Age" ) > 12 );
+        REQUIRE_EQ( viewAnd.size(), 1u );
+        std::cout << "------- view of  Level >= B && Age > 12 -----\n" << viewAnd << std::endl;
+
+
+        auto viewOr = dfidx.select( Col( "Level" ) >= 'B' || Col( "Score" ) < 45.5 );
+        REQUIRE_EQ( viewAnd.size(), 1u );
+        std::cout << "------- view of  Level >= B || Score < 45.5 -----\n" << viewAnd << std::endl;
+    }
 }

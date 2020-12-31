@@ -266,55 +266,21 @@ constexpr bool CompatibleFieldTypes()
     return ( CompatibleFieldType_v<Args> && ... );
 }
 
+constexpr bool isFloatFieldType( FieldTypeTag typeTag )
+{
+    return typeTag == FieldTypeTag::Float32 || typeTag == FieldTypeTag::Float64;
+}
+
+constexpr bool isNumericFieldType( FieldTypeTag typeTag )
+{
+    return typeTag == FieldTypeTag::Int32 || typeTag == FieldTypeTag::Int64 || isFloatFieldType( typeTag );
+}
+
 // using FieldRef = std::reference_wrapper<const VarField>;
 
 using Record = std::vector<VarField>;
 
 using Rowindex = size_t;
-
-//-- bellow compare the NullField with other Field types.
-inline bool operator==( const VarField &a, const VarField &b )
-{
-    int anynull = ( a.index() == 0 ? 1 : 0 ) | ( b.index() == 0 ? 2 : 0 );
-    if ( anynull )
-        return anynull == 3;
-    assert( a.index() == b.index() ); // may throw
-    return std::operator==( a, b );
-}
-inline bool operator!=( const VarField &a, const VarField &b )
-{
-    return !operator==( a, b );
-}
-inline bool operator<( const VarField &a, const VarField &b )
-{
-    int anynull = ( a.index() == 0 ? 1 : 0 ) | ( b.index() == 0 ? 2 : 0 );
-    if ( anynull )
-        return ( anynull == 1 ); // null is always less than non-null.
-    assert( a.index() == b.index() );
-    return std::operator<( a, b );
-}
-inline bool operator>( const VarField &a, const VarField &b )
-{
-    int anynull = ( a.index() == 0 ? 1 : 0 ) | ( b.index() == 0 ? 2 : 0 );
-    if ( anynull )
-        return ( anynull == 2 ); // null is always less than non-null.
-    assert( a.index() == b.index() );
-    return std::operator>( a, b );
-}
-inline bool operator<=( const VarField &a, const VarField &b )
-{
-    return !operator>( a, b );
-}
-inline bool operator>=( const VarField &a, const VarField &b )
-{
-    return !operator<( a, b );
-}
-
-
-
-///////////////////////////////////////////////////////////////
-/// create_default_field
-///////////////////////////////////////////////////////////////
 
 // dynamic to static invoke
 template<typename Func, class... Args>
@@ -362,6 +328,110 @@ auto static_invoke_for_type( FieldTypeTag typeTag, Func &&func, Args &&... args 
     }
 }
 
+struct GetAsIntValue
+{
+    template<class T>
+    constexpr std::optional<int64_t> invoke( const VarField &val ) const
+    {
+        if constexpr ( std::is_integral_v<T> )
+            return std::get<FieldValue<T>>( val ).value;
+        else
+            return {};
+    }
+};
+inline std::optional<int64_t> getAsInt( const VarField &v )
+{
+    return static_invoke_for_type( FieldTypeTag( v.index() ), GetAsIntValue(), v );
+}
+
+struct GetAsFloatValue
+{
+    template<class T>
+    constexpr std::optional<double> invoke( const VarField &val ) const
+    {
+        if constexpr ( std::is_floating_point_v<T> )
+            return std::get<FieldValue<T>>( val ).value;
+        else
+            return {};
+    }
+};
+inline std::optional<double> getAsDouble( const VarField &v )
+{
+    return static_invoke_for_type( FieldTypeTag( v.index() ), GetAsFloatValue(), v );
+}
+
+//-- bellow compare the NullField with other Field types.
+inline bool operator==( const VarField &a, const VarField &b )
+{
+    int anynull = ( a.index() == 0 ? 1 : 0 ) | ( b.index() == 0 ? 2 : 0 );
+    if ( anynull )
+        return anynull == 3;
+    if ( auto intA = getAsInt( a ) )
+    {
+        if ( auto intB = getAsInt( b ) )
+            return *intA == *intB;
+        else if ( auto doubleB = getAsDouble( b ) )
+            return *intA == *doubleB;
+    }
+    else if ( auto doubleA = getAsDouble( a ) )
+    {
+        if ( auto intB = getAsInt( b ) )
+            return *doubleA == *intB;
+        else if ( auto doubleB = getAsDouble( b ) )
+            return *doubleA == *doubleB;
+    }
+    return std::operator==( a, b );
+}
+
+inline bool operator!=( const VarField &a, const VarField &b )
+{
+    return !operator==( a, b );
+}
+inline bool operator<( const VarField &a, const VarField &b )
+{
+    int anynull = ( a.index() == 0 ? 1 : 0 ) | ( b.index() == 0 ? 2 : 0 );
+    if ( anynull )
+        return ( anynull == 1 ); // null is always less than non-null.
+    if ( auto intA = getAsInt( a ) )
+    {
+        if ( auto intB = getAsInt( b ) )
+            return *intA < *intB;
+        else if ( auto doubleB = getAsDouble( b ) )
+            return *intA < *doubleB;
+    }
+    else if ( auto doubleA = getAsDouble( a ) )
+    {
+        if ( auto intB = getAsInt( b ) )
+            return *doubleA < *intB;
+        else if ( auto doubleB = getAsDouble( b ) )
+            return *doubleA < *doubleB;
+    }
+    return std::operator<( a, b );
+}
+inline bool operator>( const VarField &a, const VarField &b )
+{
+    int anynull = ( a.index() == 0 ? 1 : 0 ) | ( b.index() == 0 ? 2 : 0 );
+    if ( anynull )
+        return ( anynull == 2 ); // null is always less than non-null.
+    //    assert( a.index() == b.index() );
+    return std::operator>( a, b );
+}
+inline bool operator<=( const VarField &a, const VarField &b )
+{
+    return !operator>( a, b );
+}
+inline bool operator>=( const VarField &a, const VarField &b )
+{
+    return !operator<( a, b );
+}
+
+
+
+///////////////////////////////////////////////////////////////
+/// create_default_field
+///////////////////////////////////////////////////////////////
+
+
 struct GetFieldTypeName
 {
     template<class T>
@@ -401,6 +471,7 @@ inline VarField field( std::string_view v )
 {
     return VarField{std::in_place_type_t<FieldValue<std::string>>(), FieldValue<std::string>{std::string( v )}};
 }
+
 // wrap function field.
 struct CreateField
 {
@@ -473,6 +544,8 @@ inline bool is_field_compatible( const VarField &field, const ColumnDef &col, bo
     int fieldType = int( field.index() ), colType = int( col.colTypeTag );
     if ( fieldType == 0 )
         return allowNullField;
+    if ( isNumericFieldType( FieldTypeTag( fieldType ) ) && isNumericFieldType( col.colTypeTag ) )
+        return true;
     return fieldType == colType;
 }
 inline bool is_record_compatible( const Record &rec, const ColumnDefs &cols, std::ostream *err = nullptr, bool allowNullField = true )

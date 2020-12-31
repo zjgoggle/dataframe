@@ -205,8 +205,10 @@ std::pair<const MultiColOrderedIndex *, const MultiColHashMultiIndex *> findInde
     return {pOrderIndex, pHashIndex};
 }
 
+/// Try fast path first. if bEvaluateSlowPath, evalulate slow path.
+/// \param bByFast [out] True if evaluated by fast path, False by slow path or not being evaluated.
 template<bool ReturnVecOrSet>
-auto findRowsByCondition( const DataFrameWithIndex *dfidx, ICondition *pCond, bool bEvaluateSlowPath )
+auto findRowsByCondition( const DataFrameWithIndex *dfidx, ICondition *pCond, bool bEvaluateSlowPath, bool *bByFast = nullptr )
 {
     const IDataFrame *df = dfidx->getDataFarme();
     OperatorTag op = pCond->getOperator();
@@ -215,6 +217,8 @@ auto findRowsByCondition( const DataFrameWithIndex *dfidx, ICondition *pCond, bo
     ConditionIsIn *pCondIsin = dynamic_cast<ConditionIsIn *>( pCond );
     ConditionCompare *pCondCompare = dynamic_cast<ConditionCompare *>( pCond );
 
+    if ( bByFast )
+        *bByFast = true; // bye default;
     std::conditional_t<ReturnVecOrSet, std::vector<Rowindex>, std::unordered_set<Rowindex>> irows;
     auto addOneResult = [&]( Rowindex idx ) {
         if constexpr ( ReturnVecOrSet )
@@ -346,8 +350,12 @@ auto findRowsByCondition( const DataFrameWithIndex *dfidx, ICondition *pCond, bo
             return irows;
         }
     }
+    if ( bByFast )
+        *bByFast = false;
     if ( bEvaluateSlowPath )
+    {
         return dfidx->findRowsSlowPath<ReturnVecOrSet>( pCond );
+    }
     return irows;
 }
 std::vector<Rowindex> DataFrameWithIndex::findRows( Expr expr, bool bEvaluateSlowPath ) const
@@ -358,87 +366,127 @@ std::vector<Rowindex> DataFrameWithIndex::findRows( Expr expr, bool bEvaluateSlo
         throw std::runtime_error( "Expression Error: " + err.str() );
     return findRowsByCondition<true>( this, pCond.get(), bEvaluateSlowPath );
 }
+
 std::vector<Rowindex> DataFrameWithIndex::findRows( AndExpr expr ) const
 {
     std::stringstream err;
     std::vector<IConditionPtr> andConds = expr.toCondition( *m_pDataFrame, &err );
     if ( andConds.empty() )
-        throw std::runtime_error( "Add Error: " + err.str() );
+        throw std::runtime_error( "AddExp Error: " + err.str() );
 
     std::vector<Rowindex> irows;
     std::unordered_set<Rowindex> rowCandidates;
+    std::vector<bool> evaluated( andConds.size(), false );
 
-    auto evaluateFastPath = [&]( ICondition *pCond ) -> bool {
+    auto evaluateAndCondition = [&]( ICondition *pCond, bool allowSlowPath ) -> std::pair<bool, bool> {
+        bool evaluatedByFastPath;
         if ( !rowCandidates.empty() ) // intersect existing candidates.
         {
-            auto aCandidate = findRowsByCondition<false>( this, pCond, false ); // fast path only
+            auto aCandidate = findRowsByCondition<false>( this, pCond, allowSlowPath, &evaluatedByFastPath ); // fast path only
             if ( aCandidate.empty() )
-                return true; // exit
+                return std::make_pair( evaluatedByFastPath, true ); // <evaluatedByFastPath, evaluatedEmpty>
             std::unordered_set<Rowindex> c; // intersection.
             std::copy_if( rowCandidates.begin(), rowCandidates.end(), std::inserter( c, c.begin() ), [&]( const int element ) {
                 return aCandidate.count( element ) > 0;
             } );
             if ( c.empty() )
-                return true;
+                return std::make_pair( evaluatedByFastPath, true ); // <evaluatedByFastPath, evaluatedEmpty>
             rowCandidates = std::move( c );
         }
-        else // no EQ condition
+        else // this is the first condition
         {
-            rowCandidates = findRowsByCondition<false>( this, pCond, false ); // fast path only
+            rowCandidates = findRowsByCondition<false>( this, pCond, allowSlowPath, &evaluatedByFastPath ); // fast path only
             if ( rowCandidates.empty() )
-                return true; // exit
+                return std::make_pair( evaluatedByFastPath, true ); // <evaluatedByFastPath, evaluatedEmpty>
         }
-        return false;
+        return std::make_pair( evaluatedByFastPath, false ); // <evaluatedByFastPath, evaluatedEmpty>
     }; // return empty() true to exit
 
-    // 1. check EQ in fast path only
-    for ( auto &pCond : andConds )
+    // Evaluated condition on fast path only
+    for ( size_t i = 0, N = andConds.size(); i < N; ++i )
     {
-        if ( pCond->getOperator() == OperatorTag::EQ )
-        {
-            if ( evaluateFastPath( pCond.get() ) )
-                return {};
-        }
-    }
-    // 2. check ISIN in fast path only
-    for ( auto &pCond : andConds )
-    {
-        if ( pCond->getOperator() == OperatorTag::ISIN )
-        {
-            if ( evaluateFastPath( pCond.get() ) )
-                return {};
-        }
+        auto [bEvaluated, emptyResult] = evaluateAndCondition( andConds[i].get(), false ); // fast path only
+        if ( bEvaluated && emptyResult ) // evaulated the condition but got empty result.
+            return {};
+        if ( bEvaluated )
+            evaluated[i] = true;
+        assert( !bEvaluated || bEvaluated && !emptyResult );
+        if ( rowCandidates.size() < size() / 8 ) // if candidates are small enough, exit and continue evaluating with candidates only.
+            break;
     }
 
     // if there are candidates, evaluate other conditions with candidates.
     if ( !rowCandidates.empty() )
     {
-        for ( auto &pCond : andConds )
+        for ( size_t i = 0, N = andConds.size(); i < N; ++i )
         {
-            if ( pCond->getOperator() == OperatorTag::EQ || pCond->getOperator() == OperatorTag::ISIN )
+            if ( evaluated[i] )
                 continue;
-            for ( auto it = rowCandidates.begin(); it != rowCandidates.end(); ++it )
+            for ( auto it = rowCandidates.begin(); it != rowCandidates.end(); )
             {
-                // todo
-                // evaluate condition with current it
-                // if false, remove it.
+                // evaluate condition with current it. if false, remove it.
+                if ( !andConds[i]->evalAtRow( *it ) )
+                {
+                    auto currIt = it++;
+                    rowCandidates.erase( currIt );
+                }
+                else
+                    ++it;
             }
             if ( rowCandidates.empty() )
                 return {};
         }
+        irows.insert( irows.end(), rowCandidates.begin(), rowCandidates.end() );
+        std::sort( irows.begin(), irows.end() );
+        return irows;
     }
-    //    else
-    // otherwise slow path: evaluate row by row.
 
-    // todo
-    throw std::runtime_error( "Not Implemented slow path evaluate AndExpr!" );
-    //
-    return {};
+    // otherwise slow path: evaluate row by row.
+    for ( size_t i = 0, N = size(); i < N; ++i )
+    {
+        bool good = true;
+        for ( size_t k = 0, M = andConds.size(); k < M && good; ++k )
+        {
+            assert( !evaluated[k] );
+            if ( !andConds[k]->evalAtRow( i ) )
+                good = false;
+        }
+        if ( good )
+            irows.push_back( i );
+    }
+    return irows;
 }
 std::vector<Rowindex> DataFrameWithIndex::findRows( OrExpr expr ) const
 {
-    // todo
-    return {};
+    std::stringstream err;
+    std::vector<std::vector<IConditionPtr>> orConds = expr.toCondition( *m_pDataFrame, &err );
+    if ( orConds.empty() )
+        throw std::runtime_error( "OrExp Error: " + err.str() );
+
+    std::vector<Rowindex> irows;
+
+    // todo: add fast path evaluation for OrExpr.
+
+    // slow path: evaluate row by row.
+    for ( size_t i = 0, N = size(); i < N; ++i )
+    {
+        for ( auto &andConds : orConds )
+        {
+            bool allGood = true;
+            for ( auto &cond : andConds )
+                if ( !cond->evalAtRow( i ) )
+                {
+                    allGood = false;
+                    break;
+                }
+            if ( allGood )
+            {
+                irows.push_back( i );
+                break;
+            }
+        }
+    }
+    return irows;
 }
 
 } // namespace zj
