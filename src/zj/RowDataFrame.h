@@ -71,6 +71,7 @@ public:
         return true;
     }
 
+    /// TODO: N/A value policy for each column: remove the record, save as null, or report error.
     bool appendRecordStr( const std::vector<std::string> &row, std::ostream *err = nullptr )
     {
         if ( m_columnDefs.empty() )

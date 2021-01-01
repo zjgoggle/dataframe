@@ -286,9 +286,15 @@ ADD_TEST_CASE( DataFrame_Basic )
         REQUIRE_EQ( viewAnd.size(), 1u );
         std::cout << "------- view of  Level >= B && Age > 12 -----\n" << viewAnd << std::endl;
 
-
         auto viewOr = dfidx.select( Col( "Level" ) >= 'B' || Col( "Score" ) < 45.5 );
-        REQUIRE_EQ( viewAnd.size(), 1u );
-        std::cout << "------- view of  Level >= B || Score < 45.5 -----\n" << viewAnd << std::endl;
+        REQUIRE_EQ( viewOr.size(), 4u );
+        std::cout << "------- view of  Level >= B || Score < 45.5 -----\n" << viewOr << std::endl;
+
+        //        std::cout << "val:" << std::get<int>( a ) << std::endl;
+        std::cout << "--- Score: " << to_string( viewOr.getColumnRefAsType( std::in_place_type<float>, "Score" ) ) << std::endl;
+        std::cout << "--- Age: " << to_string( viewOr.getColumnRefAsType( std::in_place_type<int>, "Age" ) ) << std::endl;
+        std::cout << "--- Level: " << to_string( viewOr.getColumnRefAsType( std::in_place_type<char>, "Level" ) ) << std::endl;
+        //        std::cout << "--- BirthDate: " << to_string( viewOr.getColumnRefAsType( std::in_place_type<Timestamp>, "BirthDate" ) ) <<
+        //        std::endl;
     }
 }

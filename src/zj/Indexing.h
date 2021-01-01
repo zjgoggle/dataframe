@@ -422,7 +422,7 @@ public:
         m_indices.resize( df.countRows() );
         std::iota( m_indices.begin(), m_indices.end(), 0 );
         m_bReverseOrder = bReverseOrder;
-        sortRows();
+        sortRows(); // if it's already sorted. may not need to sort again.
     }
 
     const std::vector<Rowindex> &getRowIndices() const
