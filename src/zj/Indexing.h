@@ -361,7 +361,6 @@ inline std::string to_string( const MultiColHashMultiIndex &val )
 ///////////////////////////////////////////////////////////////////////////
 
 
-
 template<bool isSingleColT>
 struct OrderedIndexBase
 {

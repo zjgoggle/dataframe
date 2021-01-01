@@ -591,6 +591,8 @@ inline std::string to_string( const Timestamp &tsSinceEpoch )
     return tsSinceEpoch.to_string();
 }
 
+template<class... T>
+std::string to_string( const std::vector<T...> &vec, const std::string &sep = ", ", const char *quotes = "[]" );
 // Vec require size(), operator[]
 template<class Vec>
 std::string to_string_vec( const Vec &vec, const std::string &sep = ", ", const char *quotes = "[]" )
@@ -614,7 +616,7 @@ std::string to_string_vec( const Vec &vec, const std::string &sep = ", ", const 
 }
 
 template<class... T>
-std::string to_string( const std::vector<T...> &vec, const std::string &sep = ", ", const char *quotes = "[]" )
+std::string to_string( const std::vector<T...> &vec, const std::string &sep, const char *quotes )
 {
     return to_string_vec( vec, sep, quotes );
 }

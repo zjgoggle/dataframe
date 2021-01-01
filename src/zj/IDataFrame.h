@@ -166,7 +166,7 @@ public:
         return {this, this->colIndex( colname )};
     }
 
-    std::ostream &print( std::ostream &os, bool bHeader = true, char sepField = '|', char sepRow = '\n' ) const
+    std::ostream &print( std::ostream &os, bool bHeader = true, char sepField = ',', char sepRow = '\n' ) const
     {
         size_t NC = countCols(), NR = countRows();
         if ( bHeader )

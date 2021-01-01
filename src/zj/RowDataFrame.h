@@ -43,7 +43,7 @@ public:
     RowDataFrame( const std::vector<std::vector<std::string>> &rows, const ColumnDefs &columnDefs )
     {
         std::stringstream err;
-        if ( !from_records( rows, columnDefs, &err ) )
+        if ( !from_rows( rows, columnDefs, &err ) )
             throw std::runtime_error( "Failed to create RowDataFrame from strings vector: " + err.str() );
     }
     template<class... T>
@@ -57,14 +57,14 @@ public:
     {
         clear();
     }
-    bool from_records( const std::vector<std::vector<std::string>> &rows, const ColumnDefs &columnDefs = {}, std::ostream *err = nullptr )
+    bool from_rows( const std::vector<std::vector<std::string>> &rows, const ColumnDefs &columnDefs = {}, std::ostream *err = nullptr )
     {
         clear();
         m_columnDefs = columnDefs;
         // convert strings to FieldValue types.
         for ( const auto &row : rows )
         {
-            if ( !appendRecordStr( row, err ) )
+            if ( !appendRowStr( row, err ) )
                 return false;
         }
         createColumnIndex();
@@ -72,7 +72,7 @@ public:
     }
 
     /// TODO: N/A value policy for each column: remove the record, save as null, or report error.
-    bool appendRecordStr( const std::vector<std::string> &row, std::ostream *err = nullptr )
+    bool appendRowStr( const std::vector<std::string> &row, std::ostream *err = nullptr )
     {
         if ( m_columnDefs.empty() )
         {

@@ -4,11 +4,32 @@
 #include <zj/RowDataFrame.h>
 #include <zj/DataFrameView.h>
 #include <zj/Condition.h>
-
+#include <zj/ReadCSV.h>
 
 UNITTEST_MAIN
 
 using namespace zj;
+
+ADD_TEST_CASE( ReadCSV )
+{
+    const char *text = R"(
+Name, Age, Score, BirthDate
+John, 23, A, 29.3, 2000/10/22
+Tom, "18", B, 22, "2020/12/13 10:00:10"
+)";
+
+    std::stringstream ss( text );
+    std::vector<std::vector<std::string>> records = read_csv_strings( ss, ',', 2 );
+    std::cout << "---- read csv ---\n" << to_string( records, "\n" ) << std::endl;
+
+    RowDataFrame df;
+    std::vector<ColumnDef> colDefs = {
+            StrCol( "Name" ), Int32Col( "Age" ), {FieldTypeTag::Char, "Level"}, {FieldTypeTag::Float32, "Score"}, TimestampCol( "BirthDate" )};
+    REQUIRE( df.from_rows( records, colDefs, &std::cerr ) );
+
+    std::cout << "---- DataFrame from csv ----\n" << df << std::endl;
+}
+
 ADD_TEST_CASE( DataFrame_Basic )
 {
     using Tup = std::tuple<std::string, int, float, char, Timestamp>;
@@ -21,7 +42,7 @@ ADD_TEST_CASE( DataFrame_Basic )
                 StrCol( "Name" ), Int32Col( "Age" ), {FieldTypeTag::Char, "Level"}, {FieldTypeTag::Float32, "Score"}, TimestampCol( "BirthDate" )};
         std::vector<StrVec> records{{"John", "23", "A", "29.3", "2000/10/22"}, {"Tom", "18", "B", "45.2", "N/A"}};
 
-        REQUIRE( df.from_records( records, colDefs, &std::cerr ) );
+        REQUIRE( df.from_rows( records, colDefs, &std::cerr ) );
 
         auto shape = df.shape();
         REQUIRE_EQ( shape[0], 2u ); // rows
@@ -41,6 +62,15 @@ ADD_TEST_CASE( DataFrame_Basic )
         //-- append
         REQUIRE( df.append( df1, &std::cerr ) );
         REQUIRE_EQ( df.size(), 4u );
+    }
+    SECTION( "VectorRef" )
+    {
+        VectorRef<float> fvec = df.getColumnRefAsType( std::in_place_type<float>, "Score" );
+        VectorRef<int> ivec = df.getColumnRefAsType( std::in_place_type<int>, "Age" );
+        VectorRef<char> cvec = df.getColumnRefAsType( std::in_place_type<char>, "Level" );
+        std::cout << "--- Score: " << to_string( fvec ) << std::endl;
+        std::cout << "--- Age: " << to_string( ivec ) << std::endl;
+        std::cout << "--- Level: " << to_string( cvec ) << std::endl;
     }
     SECTION( "PrintDataFrame" )
     {
@@ -275,10 +305,6 @@ ADD_TEST_CASE( DataFrame_Basic )
     }
     SECTION( "AndExpr+OrExpr" )
     {
-        auto a = field( 65 );
-        auto b = field( 'A' );
-        auto c = a == b;
-        ASSERT( c );
         DataFrameWithIndex dfidx( IDataFramePtr( df.deepCopy() ) ); // dataframe with index
         dfidx.addOrderedIndex( {"Level"} );
 
@@ -289,12 +315,5 @@ ADD_TEST_CASE( DataFrame_Basic )
         auto viewOr = dfidx.select( Col( "Level" ) >= 'B' || Col( "Score" ) < 45.5 );
         REQUIRE_EQ( viewOr.size(), 4u );
         std::cout << "------- view of  Level >= B || Score < 45.5 -----\n" << viewOr << std::endl;
-
-        //        std::cout << "val:" << std::get<int>( a ) << std::endl;
-        std::cout << "--- Score: " << to_string( viewOr.getColumnRefAsType( std::in_place_type<float>, "Score" ) ) << std::endl;
-        std::cout << "--- Age: " << to_string( viewOr.getColumnRefAsType( std::in_place_type<int>, "Age" ) ) << std::endl;
-        std::cout << "--- Level: " << to_string( viewOr.getColumnRefAsType( std::in_place_type<char>, "Level" ) ) << std::endl;
-        //        std::cout << "--- BirthDate: " << to_string( viewOr.getColumnRefAsType( std::in_place_type<Timestamp>, "BirthDate" ) ) <<
-        //        std::endl;
     }
 }
