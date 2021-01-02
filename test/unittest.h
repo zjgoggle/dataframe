@@ -210,6 +210,8 @@ void PrintStack( OStream &os = std::cout, int skipFrames = 3 )
 
 #define SECTION( name, ... ) for ( const auto _ok_ = StartSection( name ); _ok_; throw UnitTestRerunException( name ) )
 
+#define SECTION_DISABLED( name, ... ) if ( false )
+
 #define ADD_TEST_CASE( funcName, ... )                                                                                                              \
     static struct funcName##_TestCase : public UnitTestFixtureBase                                                                                  \
     {                                                                                                                                               \

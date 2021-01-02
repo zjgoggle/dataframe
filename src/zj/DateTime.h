@@ -57,7 +57,7 @@ inline int getLocalGMTOffsetSec( time_t timet )
 }
 
 // 2009-06-15T13:45:30.000-07:00
-// subsecondDigits: 0 - 9.
+// subsecondDigits: 0 - 9. when it's -1, print 3 digits if it's non-zero.
 // asLocalOffsetMinutes: print as local time specified by timeZoneSeconds.
 // bPrintTimeZoneOffset: 1, always print timezone  "+xxxx" or "-xxxx"; 0, never print time zone; -1, print timezone only when tzOffsetMinutes is
 // specified. bUseGMTOffsetIfNotSpecified: if true, use offset 0 if asLocalTimeOffsetMinutes is empty; use local offset at given time.
@@ -65,7 +65,7 @@ char *PrintTimestamp( char *buf,
                       size_t bufsize,
                       const std::chrono::nanoseconds &tp,
                       const char *fmt = "%Y-%m-%dT%T",
-                      unsigned subsecondDigits = 0,
+                      int subsecondDigits = -1,
                       int bPrintTimeZoneOffset = -1,
                       std::optional<int> asLocalTimeOffsetMinutes = {},
                       bool bUseGMTOffsetIfNotSpecified = false );
@@ -191,9 +191,10 @@ struct DateTime
         return t;
     }
 
+    /// \param nSubsecondDigits  range 0 - 9. when it's -1, print 3 digits if it's non-zero.
     // bPrintTimeZone: 1, always print timezone, 0, never print time zone; -1, print timezone only when tzOffsetMinutes is specified.
     std::string to_string( const char *adateFmt = "%Y-%m-%d",
-                           unsigned nSubsecondDigits = 0,
+                           int nSubsecondDigits = -1,
                            int bPrintTimeZone = -1,
                            bool asUTCIfNoTimeZone = false ) const
     {

@@ -166,6 +166,18 @@ public:
         return {this, this->colIndex( colname )};
     }
 
+    template<class PrimitiveT>
+    const PrimitiveT &getRefAsType( std::in_place_type_t<PrimitiveT>, size_t irow, const std::string &colname ) const
+    {
+        return std::get<FieldValue<PrimitiveT>>( at( irow, colname ) ).value;
+    }
+
+    template<class PrimitiveT>
+    const PrimitiveT &asTypeAt( std::in_place_type_t<PrimitiveT>, size_t irow, size_t icol ) const
+    {
+        return std::get<FieldValue<PrimitiveT>>( at( irow, icol ) ).value;
+    }
+
     std::ostream &print( std::ostream &os, bool bHeader = true, char sepField = ',', char sepRow = '\n' ) const
     {
         size_t NC = countCols(), NR = countRows();
@@ -529,6 +541,7 @@ inline bool operator==( const MultiColFieldsHashDelegate &a, const MultiColField
         return VecEqual()( std::get<1>( a.m_data ), std::get<1>( b.m_data ) );
     default:
         assert( false && "Never reach here!" );
+        return false;
     }
 }
 

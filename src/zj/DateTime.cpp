@@ -7,7 +7,7 @@ char *PrintTimestamp( char *buf,
                       size_t bufsize,
                       const std::chrono::nanoseconds &tp,
                       const char *fmt,
-                      unsigned subsecondDigits,
+                      int subsecondDigits,
                       int bPrintTimeZoneOffset,
                       std::optional<int> asLocalTimeOffsetMinutes,
                       bool bUseGMTOffsetIfNotSpecified )
@@ -31,6 +31,8 @@ char *PrintTimestamp( char *buf,
     auto nBytes = strftime( buf, bufsize, fmt ? fmt : defaultFmt, &atime ); // YYYYMMDD-HH:MM:SS
     if ( nBytes <= 0 )
         return nullptr;
+    if ( subsecondDigits < 0 )
+        subsecondDigits = nanoSecondsPart ? 3 : 0;
     if ( subsecondDigits && subsecondDigits < 10 ) // .sss
     {
         char fmtbuf[] = ".%02d";

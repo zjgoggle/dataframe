@@ -433,7 +433,13 @@ template<class T>
 std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator<( ColName &&cols, T &&val )
 {
     assert( cols.cols.size() == 1 );
-    return Expr{std::move( cols.cols ), OperatorTag::LT, Record{field( std::move( val ) )}};
+    return Expr{std::move( cols.cols ), OperatorTag::LT, Record{field( std::forward<T>( val ) )}};
+}
+template<class T>
+std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator<( ColName &&cols, const T &val )
+{
+    assert( cols.cols.size() == 1 );
+    return Expr{std::move( cols.cols ), OperatorTag::LT, Record{field( val )}};
 }
 
 // Cols < vals
@@ -447,6 +453,12 @@ Expr operator<( ColNames &&cols, std::tuple<Args...> &&val )
 // Col == val
 template<class T>
 std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator==( ColName &&cols, T &&val )
+{
+    assert( cols.cols.size() == 1 );
+    return Expr{std::move( cols.cols ), OperatorTag::EQ, {Record{field( std::forward<T>( val ) )}}};
+}
+template<class T>
+std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator==( ColName &&cols, const T &val )
 {
     assert( cols.cols.size() == 1 );
     return Expr{std::move( cols.cols ), OperatorTag::EQ, {Record{field( val )}}};
@@ -466,6 +478,12 @@ template<class T>
 std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator!=( ColName &&cols, T &&val )
 {
     assert( cols.cols.size() == 1 );
+    return Expr{std::move( cols.cols ), OperatorTag::NE, {Record{field( std::forward<T>( val ) )}}};
+}
+template<class T>
+std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator!=( ColName &&cols, const T &val )
+{
+    assert( cols.cols.size() == 1 );
     return Expr{std::move( cols.cols ), OperatorTag::NE, {Record{field( val )}}};
 }
 
@@ -481,6 +499,12 @@ Expr operator!=( ColNames &&cols, std::tuple<Args...> &&val )
 // Col > val
 template<class T>
 std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator>( ColName &&cols, T &&val )
+{
+    assert( cols.cols.size() == 1 );
+    return Expr{std::move( cols.cols ), OperatorTag::GT, {Record{field( std::forward<T>( val ) )}}};
+}
+template<class T>
+std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator>( ColName &&cols, const T &val )
 {
     assert( cols.cols.size() == 1 );
     return Expr{std::move( cols.cols ), OperatorTag::GT, {Record{field( val )}}};
@@ -500,6 +524,12 @@ template<class T>
 std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator>=( ColName &&cols, T &&val )
 {
     assert( cols.cols.size() == 1 );
+    return Expr{std::move( cols.cols ), OperatorTag::GE, {Record{field( std::forward<T>( val ) )}}};
+}
+template<class T>
+std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator>=( ColName &&cols, const T &val )
+{
+    assert( cols.cols.size() == 1 );
     return Expr{std::move( cols.cols ), OperatorTag::GE, {Record{field( val )}}};
 }
 
@@ -515,6 +545,12 @@ Expr operator>=( ColNames &&cols, std::tuple<Args...> &&val )
 // Col <= val
 template<class T>
 std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator<=( ColName &&cols, T &&val )
+{
+    assert( cols.cols.size() == 1 );
+    return Expr{std::move( cols.cols ), OperatorTag::LE, {Record{field( std::forward<T>( val ) )}}};
+}
+template<class T>
+std::enable_if_t<CompatibleFieldType_v<T>, Expr> operator<=( ColName &&cols, const T &val )
 {
     assert( cols.cols.size() == 1 );
     return Expr{std::move( cols.cols ), OperatorTag::LE, {Record{field( val )}}};

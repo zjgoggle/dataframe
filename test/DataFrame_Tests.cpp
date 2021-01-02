@@ -5,6 +5,7 @@
 #include <zj/DataFrameView.h>
 #include <zj/Condition.h>
 #include <zj/ReadCSV.h>
+#include <fstream>
 
 UNITTEST_MAIN
 
@@ -12,22 +13,109 @@ using namespace zj;
 
 ADD_TEST_CASE( ReadCSV )
 {
-    const char *text = R"(
+
+    SECTION_DISABLED( "Read string" )
+    {
+        RowDataFrame df;
+        const char *text = R"(
 Name, Age, Score, BirthDate
 John, 23, A, 29.3, 2000/10/22
 Tom, "18", B, 22, "2020/12/13 10:00:10"
 )";
 
-    std::stringstream ss( text );
-    std::vector<std::vector<std::string>> records = read_csv_strings( ss, ',', 2 );
-    std::cout << "---- read csv ---\n" << to_string( records, "\n" ) << std::endl;
+        std::stringstream ss( text );
+        std::vector<std::vector<std::string>> records = read_csv_strings( ss, ',', 2 );
+        std::cout << "---- read csv ---\n" << to_string( records, "\n" ) << std::endl;
 
-    RowDataFrame df;
-    std::vector<ColumnDef> colDefs = {
-            StrCol( "Name" ), Int32Col( "Age" ), {FieldTypeTag::Char, "Level"}, {FieldTypeTag::Float32, "Score"}, TimestampCol( "BirthDate" )};
-    REQUIRE( df.from_rows( records, colDefs, &std::cerr ) );
+        std::vector<ColumnDef> colDefs = {
+                StrCol( "Name" ), Int32Col( "Age" ), {FieldTypeTag::Char, "Level"}, {FieldTypeTag::Float32, "Score"}, TimestampCol( "BirthDate" )};
+        REQUIRE( df.from_rows( records, colDefs, &std::cerr ) );
 
-    std::cout << "---- DataFrame from csv ----\n" << df << std::endl;
+        std::cout << "---- DataFrame from csv ----\n" << df << std::endl;
+    }
+    SECTION_DISABLED( "Read File, DataFrameView - Slow" )
+    {
+        RowDataFrame *df = new RowDataFrame();
+        std::ifstream ifs( "/mnt/ldata/project/stockanalysis/fundsholdings.csv" );
+        REQUIRE( ifs.good() );
+        auto header = read_csv_strings( ifs, '|', 0, 1 );
+        std::cout << "---- DataFrame Header from csv ----\n" << header << std::endl;
+
+        std::vector<ColumnDef> colDefs = {
+                StrCol( "Symbol" ), StrCol( "Company" ), Float32Col( "Weight" ), StrCol( "FundSymbol" ), TimestampCol( "Timestamp" )};
+
+        auto time0 = std::chrono::steady_clock::now();
+        auto recordlist = read_csv_strings( ifs, '|', 0 );
+        REQUIRE( df->from_rows( recordlist, colDefs, &std::cerr ) );
+        auto time1 = std::chrono::steady_clock::now();
+        std::cout << "  read csv records:" << recordlist.size() << " time elapse (ms):" << ( time1 - time0 ).count() / 1000000u << std::endl;
+
+        //- find the last Timestamp of each fund.
+        DataFrameWithIndex dfidx( IDataFramePtr{df} );
+        dfidx.addHashIndex( {"FundSymbol"} );
+        auto time2 = std::chrono::steady_clock::now();
+        std::cout << "  set up index time elapse (ms):" << ( time2 - time1 ).count() / 1000000u << std::endl;
+
+        std::unordered_map<Str, Timestamp> funds;
+        for ( size_t i = 0, N = df->size(), icol = df->colIndex( "FundSymbol" ); i < N; ++i )
+            funds[df->asTypeAt( std::in_place_type<Str>, i, icol )] = Timestamp();
+        auto time3 = std::chrono::steady_clock::now();
+        std::cout << "  setup funds map time elapse (ms):" << ( time3 - time2 ).count() / 1000000u << std::endl;
+
+        size_t icolTime = df->colIndex( "Timestamp" );
+        for ( auto &e : funds )
+        {
+            const std::string &fund = e.first;
+            auto fundview = dfidx.select( Col( "FundSymbol" ) == fund ); // too slow
+            const Timestamp &ts = fundview.asTypeAt( std::in_place_type<Timestamp>, fundview.size() - 1, icolTime );
+            e.second = ts;
+        }
+        auto time4 = std::chrono::steady_clock::now();
+        std::cout << "*** funds:Timestamp size:" << funds.size() << " time elapse (ms):" << ( time4 - time3 ).count() / 1000000u << std::endl;
+        //        std::cout << "  fund:timestamp:" << to_string( funds ) << std::endl;
+    }
+    SECTION( "Read File, DataFrame Index" )
+    {
+        RowDataFrame df;
+        std::ifstream ifs( "/mnt/ldata/project/stockanalysis/fundsholdings.csv" );
+        REQUIRE( ifs.good() );
+        auto header = read_csv_strings( ifs, '|', 0, 1 );
+        std::cout << "---- DataFrame Header from csv ----\n" << header << std::endl;
+
+        std::vector<ColumnDef> colDefs = {
+                StrCol( "Symbol" ), StrCol( "Company" ), Float32Col( "Weight" ), StrCol( "FundSymbol" ), TimestampCol( "Timestamp" )};
+
+        auto time0 = std::chrono::steady_clock::now();
+        auto recordlist = read_csv_strings( ifs, '|', 0 );
+        REQUIRE( df.from_rows( recordlist, colDefs, &std::cerr ) );
+        auto time1 = std::chrono::steady_clock::now();
+        std::cout << "  read csv records:" << recordlist.size() << " time elapse (ms):" << ( time1 - time0 ).count() / 1000000u << std::endl;
+
+        //- find the last Timestamp of each fund.
+        HashMultiIndex indexName;
+        indexName.create( df, "FundSymbol" );
+
+        auto time2 = std::chrono::steady_clock::now();
+        std::cout << "  set up index time elapse (ms):" << ( time2 - time1 ).count() / 1000000u << std::endl;
+
+        std::unordered_map<Str, Timestamp> funds;
+        for ( size_t i = 0, N = df.size(), icol = df.colIndex( "FundSymbol" ); i < N; ++i )
+            funds[df.asTypeAt( std::in_place_type<Str>, i, icol )] = Timestamp();
+        auto time3 = std::chrono::steady_clock::now();
+        std::cout << "  setup funds map time elapse (ms):" << ( time3 - time2 ).count() / 1000000u << std::endl;
+
+        size_t icolTime = df.colIndex( "Timestamp" );
+        for ( auto &e : funds )
+        {
+            const std::string &fund = e.first;
+            const auto &rowIndices = indexName[field( fund )];
+            const Timestamp &ts = df.asTypeAt( std::in_place_type<Timestamp>, rowIndices.back(), icolTime );
+            e.second = ts;
+        }
+        auto time4 = std::chrono::steady_clock::now();
+        std::cout << "*** funds:Timestamp size:" << funds.size() << " time elapse (ms):" << ( time4 - time3 ).count() / 1000000u << std::endl;
+        //        std::cout << "  fund:timestamp:" << to_string( funds ) << std::endl;
+    }
 }
 
 ADD_TEST_CASE( DataFrame_Basic )

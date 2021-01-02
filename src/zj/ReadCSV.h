@@ -21,6 +21,7 @@
 #include <string>
 #include <iostream>
 #include <functional>
+#include <climits>
 
 namespace zj
 {
@@ -31,6 +32,7 @@ namespace zj
 inline std::vector<std::vector<std::string>> read_csv_strings( std::istream &is,
                                                                char sep = ',',
                                                                size_t skipLines = 0,
+                                                               size_t readMaxRecords = ULLONG_MAX,
                                                                std::function<bool( std::vector<std::string> & )> rowFilter = nullptr,
                                                                char commentChar = 0,
                                                                const char *quotes = "\"\"" )
@@ -189,6 +191,8 @@ inline std::vector<std::vector<std::string>> read_csv_strings( std::istream &is,
         if ( !row.empty() && ( !rowFilter || rowFilter( row ) ) )
         {
             rows.push_back( std::move( row ) );
+            if ( rows.size() >= readMaxRecords )
+                break;
         }
     }
     return rows;
